@@ -4,4 +4,4 @@
 using FileSys::FileSystem;
 using FileSys::FResourceFile;
 
-inline FileSys::FileSystem fileSystem;
+extern FileSys::FileSystem fileSystem; // declared in filesystem.cpp

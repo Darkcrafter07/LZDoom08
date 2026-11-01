@@ -33,6 +33,9 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
 
 #include "cmdlib.h"
 #include "fs_findfile.h"
@@ -60,6 +63,7 @@ gamedir will hold progdir + the game directory (id1, id2, etc)
   */
 
 FString progdir;
+extern bool winXPcompat;
 
 //==========================================================================
 //
@@ -204,7 +208,15 @@ bool DirEntryExists(const char *pathname, bool *isdir)
 	// Windows must use the wide version of stat to preserve non-standard paths.
 	auto wstr = WideString(pathname);
 	struct _stat64 info;
-	bool res = _wstat64(wstr.c_str(), &info) == 0;
+	bool res = false;
+	if (winXPcompat)
+	{
+		res = FileSys::FileSystem::wstat32xp(wstr.c_str(), &info) == 0;
+	}
+	else
+	{
+		res = _wstat64(wstr.c_str(), &info) == 0;
+	}
 #endif
 	if (isdir) *isdir = !!(info.st_mode & S_IFDIR);
 	return res;
@@ -230,7 +242,15 @@ bool GetFileInfo(const char* pathname, size_t *size, time_t *time)
 	// Windows must use the wide version of stat to preserve non-standard paths.
 	auto wstr = WideString(pathname);
 	struct _stat64 info;
-	bool res = _wstat64(wstr.c_str(), &info) == 0;
+	bool res = false;
+	if (winXPcompat)
+	{
+		res = FileSys::FileSystem::wstat32xp(wstr.c_str(), &info) == 0;
+	}
+	else
+	{
+		res = _wstat64(wstr.c_str(), &info) == 0;
+	}
 #endif
 	if (!res || (info.st_mode & S_IFDIR)) return false;
 	if (size) *size = (size_t)info.st_size;

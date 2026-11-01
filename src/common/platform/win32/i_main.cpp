@@ -34,7 +34,16 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #define WIN32_LEAN_AND_MEAN
+
+#ifndef XPPATCH
+#include <unknwn.h> // Bypassed (disabled) when MadeForWinXP preset is ON
+#endif
+
 #include <windows.h>
 #include <mmsystem.h>
 #include <objbase.h>
@@ -42,7 +51,6 @@
 #include <richedit.h>
 
 #include <shellapi.h>
-#include <VersionHelpers.h>
 
 #ifdef _MSC_VER
 #pragma warning(disable:4244)
@@ -78,6 +86,14 @@
 #include "printf.h"
 
 #include "i_mainwindow.h"
+
+// ==================================== XP Patch - START ====================================
+#ifdef XPPATCH
+bool winXPcompat = true;  // Forced compatibility layout when MadeForWinXP preset is ON
+#else
+bool winXPcompat = false; // Default behavior for modern Windows environments
+#endif
+// ==================================== XP Patch - FINISH ===================================
 
 // MACROS ------------------------------------------------------------------
 
@@ -203,8 +219,8 @@ int DoMain (HINSTANCE hInstance)
 
 		if (GetConsoleMode(StdOut, &mode))
 		{
-			if (SetConsoleMode(StdOut, mode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
-				FancyStdOut = IsWindows10OrGreater(); // Windows 8.1 and lower do not understand ANSI formatting.
+			if (SetConsoleMode(StdOut, mode | ENABLE_PROCESSED_OUTPUT)) 
+				FancyStdOut = false;
 		}
 	}
 	else if (Args->CheckParm("-stdout"))
@@ -248,8 +264,8 @@ int DoMain (HINSTANCE hInstance)
 				DWORD mode;
 				if (GetConsoleMode(StdOut, &mode))
 				{
-					if (SetConsoleMode(StdOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
-						FancyStdOut = IsWindows10OrGreater(); // Windows 8.1 and lower do not understand ANSI formatting.
+					if (SetConsoleMode(StdOut, mode | ENABLE_PROCESSED_OUTPUT))
+						FancyStdOut = false;
 				}
 			}
 		}

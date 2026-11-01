@@ -33,13 +33,25 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+// i_dijoy.cpp
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define DIRECTINPUT_VERSION 0x800
 #include <windows.h>
 #include <dinput.h>
-#ifndef __GNUC__
-#include <wbemidl.h>
+
+// ==================================== Windows XP Compatibility Layer ====================================
+#ifndef XPPATCH
+	// This block is bypassed (disabled) when MadeForWinXP preset is ON
+	#ifndef __GNUC__
+	#include <wbemidl.h>
+	#endif
 #endif
+// ========================================================================================================
+
 #include <oleauto.h>
 #include <malloc.h>
 

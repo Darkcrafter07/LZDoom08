@@ -146,6 +146,8 @@ public:
 	FileReader* GetFileReader(int wadnum);	// Gets a FileReader object to the entire WAD
 	void InitHashChains();
 
+	static int wstat32xp(const wchar_t* path, struct _stat64* buffer); // XP patch: defined in filesystem.cpp
+
 protected:
 
 	struct LumpRecord;

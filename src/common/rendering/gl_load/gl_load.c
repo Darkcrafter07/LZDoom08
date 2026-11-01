@@ -40,13 +40,27 @@ static void* PosixGetProcAddress (const GLubyte* name)
 }
 #endif /* __sgi || __sun || __unix__ */
 
-#if defined(_WIN32)
-
-#ifdef APIENTRY
-#undef APIENTRY
+// ==================================== Windows XP Compatibility Layer ====================================
+#ifdef XPPATCH
+	// Activated when MadeForWinXP preset is ON
+	#if defined(_WIN32)
+		#ifdef _MSC_VER
+			#pragma inline_depth(0)
+			#pragma warning(disable: 4055)
+			#pragma warning(disable: 4054)
+			#pragma warning(disable: 4996)
+		#endif
+	#endif
+#else
+	// Default configuration for modern Windows versions
+	#if defined(_WIN32)
+		#ifdef APIENTRY
+			#undef APIENTRY
+		#endif
+		#include <windows.h>
+	#endif
 #endif
-#include <windows.h>
-
+// ========================================================================================================
 
 #ifdef _MSC_VER
 // disable inlining here because it creates an incredible amount of bloat in this file.

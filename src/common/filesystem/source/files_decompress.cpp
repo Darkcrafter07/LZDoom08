@@ -33,6 +33,10 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 // Caution: LzmaDec also pulls in windows.h!
 #define NOMINMAX
 #include "LzmaDec.h"
@@ -48,6 +52,10 @@
 #include "files_internal.h"
 #include "ancientzip.h"
 #include "fs_decompress.h"
+
+#ifdef XPPATCH
+#include <algorithm> // XP patch
+#endif
 
 namespace FileSys {
 	using namespace byteswap;

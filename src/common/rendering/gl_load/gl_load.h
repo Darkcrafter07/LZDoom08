@@ -1,3 +1,17 @@
+// gl_load.h
+
+// ==================================== Windows XP Compatibility Layer ====================================
+#ifdef XPPATCH
+	// Activated only when MadeForWinXP preset is ON
+	#if defined(_WIN32)
+		#define WIN32_LEAN_AND_MEAN
+		#include <windows.h>
+		#undef APIENTRY
+		#define APIENTRY __stdcall
+	#endif
+#endif
+// ========================================================================================================
+
 #ifndef POINTER_C_GENERATED_HEADER_OPENGL_H
 #define POINTER_C_GENERATED_HEADER_OPENGL_H
 

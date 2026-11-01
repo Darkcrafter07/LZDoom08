@@ -46,6 +46,10 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #pragma warning(disable:4996)
 #include <stdlib.h>
 #include <stdio.h>

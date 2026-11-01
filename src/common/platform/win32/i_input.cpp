@@ -35,6 +35,10 @@
 // DI3 only supports up to 4 mouse buttons, and I want the joystick to
 // be read using DirectInput instead of winmm.
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define __BYTEBOOL__
 #ifndef __GNUC__

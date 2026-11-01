@@ -1,5 +1,5 @@
 /*
-** i_specialpaths.cpp
+** i_specialpaths.cpp - xp faulty
 ** Gets special system folders where data should be stored. (Windows version)
 **
 **---------------------------------------------------------------------------
@@ -33,46 +33,67 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <windows.h>
 #include <lmcons.h>
 #include <shlobj.h>
 #include <Shlwapi.h>
-#include <VersionHelpers.h>
 
 #include "i_specialpaths.h"
 #include "printf.h"
 #include "cmdlib.h"
 #include "findfile.h"
-#include "version.h"	// for GAMENAME
+#include "version.h" // for GAMENAME
 #include "gstrings.h"
 #include "i_mainwindow.h"
 #include "engineerrors.h"
 
+// Define modern folder flags manually if missing in old SDK headers
+#ifndef KF_FLAG_CREATE
+#define KF_FLAG_CREATE 0x00008000
+#endif
 
 static int isportable = -1;
+extern bool winXPcompat; // XP patch: declared in win32, i_main.cpp
 
-//===========================================================================
-//
-// IsProgramDirectoryWritable
-//
-// If the program directory is writable, then dump everything in there for
-// historical reasons. Otherwise, known folders get used instead.
-//
-//===========================================================================
+// Stub replacement for missing VersionHelpers on Windows XP
+static bool IsWindows8OrGreaterXP()
+{
+	OSVERSIONINFOEXW osvi = { sizeof(osvi), 0, 0, 0, 0, {0}, 0, 0 };
+	DWORDLONG const dwlConditionMask = VerSetConditionMask(
+		VerSetConditionMask(
+			VerSetConditionMask(0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+			VER_MINORVERSION, VER_GREATER_EQUAL),
+		VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
 
+	osvi.dwMajorVersion = 6;
+	osvi.dwMinorVersion = 2;
+	return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION, dwlConditionMask) != FALSE;
+}
+
+//==========================================================================
+//
+// IsPortable
+//
+//==========================================================================
 bool IsPortable()
 {
-	// Cache this value so the semantics don't change during a single run
-	// of the program. (e.g. Somebody could add write access while the
-	// program is running.)
-	HANDLE file;
+	// XP Compatibility: block the system folders completely and enforce root directory execution
+	if (winXPcompat)
+	{
+		isportable = true;
+		return true;
+	}
 
+	// Original modern OS detection fallback
 	if (isportable >= 0)
 	{
 		return !!isportable;
 	}
 
-	// Consider 'Program Files' read only without actually checking.
 	bool found = false;
 	for (auto p : { L"ProgramFiles", L"ProgramFiles(x86)" })
 	{
@@ -80,7 +101,9 @@ bool IsPortable()
 		if (GetEnvironmentVariable(p, buffer1, 256))
 		{
 			FString envpath(buffer1);
-			FixPathSeperator(envpath);
+			if (winXPcompat) envpath.ReplaceChars('/', '\\');
+			else envpath.ReplaceChars('\\', '/');
+
 			if (progdir.MakeLower().IndexOf(envpath.MakeLower()) == 0)
 			{
 				isportable = false;
@@ -89,11 +112,10 @@ bool IsPortable()
 		}
 	}
 
-	// A portable INI means that this storage location should also be portable if the file can be written to.
-	FStringf path("%s" GAMENAMELOWERCASE "_portable.ini", progdir.GetChars());
-	if (FileExists(path))
+	FString pathf("%s" GAMENAMELOWERCASE "_portable.ini", progdir.GetChars());
+	if (FileExists(pathf))
 	{
-		file = CreateFile(path.WideString().c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL,
+		HANDLE file = CreateFileW(pathf.WideString().c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL,
 			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (file != INVALID_HANDLE_VALUE)
 		{
@@ -108,40 +130,61 @@ bool IsPortable()
 	return false;
 }
 
-//===========================================================================
+//==========================================================================
 //
 // GetKnownFolder
 //
-// Returns the known_folder from SHGetKnownFolderPath
+// Backported to use SHGetFolderPathA for Windows XP compatibility
 //
-//===========================================================================
-
-FString GetKnownFolder(int shell_folder, REFKNOWNFOLDERID known_folder, bool create)
+//==========================================================================
+FString GetKnownFolder(int shell_folder, const void* dummy_guid, bool create)
 {
-	PWSTR wpath;
-	if (FAILED(SHGetKnownFolderPath(known_folder, create ? KF_FLAG_CREATE : 0, NULL, &wpath)))
+	char path[MAX_PATH];
+	int flags = shell_folder;
+	if (create) flags |= CSIDL_FLAG_CREATE;
+
+	if (winXPcompat)
 	{
-		// This should never be triggered unless the OS was compromised
-		I_FatalError("Unable to retrieve known folder.");
+		// Force standard Windows XP token and type 0 initialization
+		if (FAILED(SHGetFolderPathA(NULL, flags, NULL, 0, path)))
+		{
+			I_FatalError("Unable to retrieve known folder.");
+		}
 	}
-	FString path = FString(wpath);
-	FixPathSeperator(path);
-	CoTaskMemFree(wpath);
-	return path;
+	else
+	{
+		if (FAILED(SHGetFolderPathA(NULL, flags, NULL, SHGFP_TYPE_CURRENT, path)))
+		{
+			if (FAILED(SHGetFolderPathA(NULL, flags, NULL, SHGFP_TYPE_DEFAULT, path)))
+			{
+				I_FatalError("Unable to retrieve known folder.");
+			}
+		}
+	}
+
+	FString fpath = FString(path);
+
+	// Normalize slashes safely depending on active compatibility mode
+	if (winXPcompat)
+	{
+		fpath.ReplaceChars('/', '\\');
+	}
+	else
+	{
+		fpath.ReplaceChars('\\', '/');
+	}
+
+	return fpath;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetAppDataPath													Windows
+// M_GetAppDataPath
 //
-// Returns the path for the AppData folder.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetAppDataPath(bool create)
 {
-	FString path = GetKnownFolder(CSIDL_LOCAL_APPDATA, FOLDERID_LocalAppData, create);
-
+	FString path = GetKnownFolder(CSIDL_LOCAL_APPDATA, NULL, create);
 	path += "/" GAMENAMELOWERCASE;
 	if (create)
 	{
@@ -150,20 +193,14 @@ FString M_GetAppDataPath(bool create)
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetCachePath													Windows
+// M_GetCachePath
 //
-// Returns the path for cache GL nodes.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetCachePath(bool create)
 {
-	FString path = GetKnownFolder(CSIDL_LOCAL_APPDATA, FOLDERID_LocalAppData, create);
-
-	// Don't use GAME_DIR and such so that ZDoom and its child ports can
-	// share the node cache.
+	FString path = GetKnownFolder(CSIDL_LOCAL_APPDATA, NULL, create);
 	path += "/zdoom/cache";
 	if (create)
 	{
@@ -172,58 +209,45 @@ FString M_GetCachePath(bool create)
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetAutoexecPath												Windows
+// M_GetAutoexecPath
 //
-// Returns the expected location of autoexec.cfg.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetAutoexecPath()
 {
 	return "$PROGDIR/autoexec.cfg";
 }
 
-//===========================================================================
+//==========================================================================
 //
 // M_GetOldConfigPath
 //
-// Check if we have a config in a place that's no longer used.
-// 
-//===========================================================================
-
+//==========================================================================
 FString M_GetOldConfigPath(int& type)
 {
 	FString path;
 	HRESULT hr;
-
-	// construct "$PROGDIR/-$USER.ini"
 	WCHAR uname[UNLEN + 1];
 	DWORD unamelen = UNLEN;
-
 	path = progdir;
 	hr = GetUserNameW(uname, &unamelen);
 	if (SUCCEEDED(hr) && uname[0] != 0)
 	{
-		// Is it valid for a user name to have slashes?
-		// Check for them and substitute just in case.
 		auto probe = uname;
 		while (*probe != 0)
 		{
 			if (*probe == '\\' || *probe == '/')
-				*probe = '_';
+				*probe = '-';
 			++probe;
 		}
-		path << GAMENAMELOWERCASE "-" << FString(uname) << ".ini";
 		type = 0;
+		path << GAMENAMELOWERCASE "-" << FString(uname) << ".ini";
 		if (FileExists(path))
 			return path;
 	}
 
-	// Check in app data where this was previously stored.
-	// We actually prefer to store the config in a more visible place so this is no longer used.
-	path = GetKnownFolder(CSIDL_APPDATA, FOLDERID_RoamingAppData, true);
+	path = GetKnownFolder(CSIDL_APPDATA, NULL, true);
 	path += "/" GAME_DIR "/" GAMENAMELOWERCASE ".ini";
 	type = 1;
 	if (FileExists(path))
@@ -232,47 +256,24 @@ FString M_GetOldConfigPath(int& type)
 	return "";
 }
 
-//===========================================================================
+//==========================================================================
 //
 // M_MigrateOldConfig
 //
-// Ask the user what to do with their old config.
-// 
-//===========================================================================
-
+// Disabled on Windows XP due to missing TaskDialog API
+//
+//==========================================================================
 int M_MigrateOldConfig()
 {
-	int selection = IDCANCEL;
-	auto globalstr = L"Move to Users/ folder";
-	auto portablestr = L"Convert to portable installation";
-	auto cancelstr = L"Cancel";
-	auto titlestr = L"Migrate existing configuration";
-	auto infostr = L"" GAMENAME " found a user specific config in the game folder";
-	const TASKDIALOG_BUTTON buttons[] = { {IDYES, globalstr}, {IDNO, portablestr}, {IDCANCEL, cancelstr} };
-	TASKDIALOGCONFIG taskDialogConfig = {};
-	taskDialogConfig.cbSize = sizeof(TASKDIALOGCONFIG);
-	taskDialogConfig.pszMainIcon = TD_WARNING_ICON;
-	taskDialogConfig.pButtons = buttons;
-	taskDialogConfig.cButtons = countof(buttons);
-	taskDialogConfig.pszWindowTitle = titlestr;
-	taskDialogConfig.pszContent = infostr;
-	taskDialogConfig.hwndParent = mainwindow.GetHandle();
-	taskDialogConfig.dwFlags = TDF_USE_COMMAND_LINKS;
-	TaskDialogIndirect(&taskDialogConfig, &selection, NULL, NULL);
-	if (selection == IDYES || selection == IDNO) return selection;
-	throw CExitEvent(3);
+	// TaskDialog API does not exist on Windows XP, skip migration choices cleanly
+	return IDCANCEL;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetConfigPath													Windows
+// M_GetConfigPath
 //
-// Returns the path to the config file. On Windows, this can vary for reading
-// vs writing. i.e. If the user specific ini does not exist, it will try
-// to read from a neutral version, but never write to it.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetConfigPath(bool for_reading)
 {
 	if (IsPortable())
@@ -280,16 +281,12 @@ FString M_GetConfigPath(bool for_reading)
 		return FStringf("%s" GAMENAMELOWERCASE "_portable.ini", progdir.GetChars());
 	}
 
-	// Construct a user-specific config name
-	FString path = GetKnownFolder(CSIDL_APPDATA, FOLDERID_Documents, true);
+	FString path = GetKnownFolder(CSIDL_APPDATA, NULL, true);
 	path += "/My Games/" GAME_DIR;
 	CreatePath(path.GetChars());
 	path += "/" GAMENAMELOWERCASE ".ini";
 	if (!for_reading || FileExists(path))
 		return path;
-
-	// No config was found in the accepted locations. 
-	// Look in previously valid places to see if we have something we can migrate
 
 	int type = 0;
 	FString oldpath = M_GetOldConfigPath(type);
@@ -297,7 +294,6 @@ FString M_GetConfigPath(bool for_reading)
 	{
 		if (type == 0)
 		{
-			// If we find a local per-user config, ask the user what to do with it.
 			int action = M_MigrateOldConfig();
 			if (action == IDNO)
 			{
@@ -305,13 +301,13 @@ FString M_GetConfigPath(bool for_reading)
 				isportable = true;
 			}
 		}
+
+		// MoveFileExW works correctly on XP
 		bool res = MoveFileExW(WideString(oldpath.GetChars()).c_str(), WideString(path.GetChars()).c_str(), MOVEFILE_COPY_ALLOWED);
 		if (res) return path;
-		else return oldpath;	// if we cannot move, just use the config where it was. It won't be written back, though and never be used again if a new one gets saved.
+		else return oldpath;
 	}
 
-	// Fall back to the global template if nothing was found.
-	// If we are reading the config file, check if it exists. If not, fallback to base version.
 	if (for_reading)
 	{
 		if (!FileExists(path))
@@ -320,129 +316,104 @@ FString M_GetConfigPath(bool for_reading)
 			path << GAMENAMELOWERCASE ".ini";
 		}
 	}
-
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetScreenshotsPath												Windows
+// M_GetScreenshotsPath
 //
-// Returns the path to the default screenshots directory.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetScreenshotsPath()
 {
 	FString path;
-
 	if (IsPortable())
 	{
 		path << progdir << "Screenshots/";
 	}
-	else if (IsWindows8OrGreater())
+	else if (IsWindows8OrGreaterXP())
 	{
-		path = GetKnownFolder(-1, FOLDERID_Screenshots, true);
-
+		// Modern Windows path fallback
+		path = GetKnownFolder(CSIDL_MYPICTURES, NULL, true);
 		path << "/" GAMENAME "/";
 	}
-	else 
+	else
 	{
-		path = GetKnownFolder(CSIDL_MYPICTURES, FOLDERID_Pictures, true);
+		// Classic Windows XP Pictures location
+		path = GetKnownFolder(CSIDL_MYPICTURES, NULL, true);
 		path << "/Screenshots/" GAMENAME "/";
 	}
 	CreatePath(path.GetChars());
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetSavegamesPath												Windows
+// M_GetSavegamesPath
 //
-// Returns the path to the default save games directory.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetSavegamesPath()
 {
 	FString path;
-
 	if (IsPortable())
 	{
 		path << progdir << "Save/";
 	}
-	// Try standard Saved Games folder
 	else
 	{
-		path = GetKnownFolder(-1, FOLDERID_SavedGames, true);
-		path << "/" GAMENAME "/";
+		// Windows XP saves into My Documents/My Games/GAMENAME instead of FOLDERID_SavedGames
+		path = GetKnownFolder(CSIDL_PERSONAL, NULL, true);
+		path << "/My Games/" GAMENAME "/";
 	}
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetDocumentsPath												Windows
+// M_GetDocumentsPath
 //
-// Returns the path to the default documents directory.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetDocumentsPath()
 {
 	FString path;
-
 	if (IsPortable())
 	{
 		return progdir;
 	}
-	// Try defacto My Documents/My Games folder
-	else 
+	else
 	{
-		// I assume since this isn't a standard folder, it doesn't have a localized name either.
-		path = GetKnownFolder(CSIDL_PERSONAL, FOLDERID_Documents, true);
+		path = GetKnownFolder(CSIDL_PERSONAL, NULL, true);
 		path << "/My Games/" GAMENAME "/";
 		CreatePath(path.GetChars());
 	}
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_GetDemoPath												Windows
+// M_GetDemoPath
 //
-// Returns the path to the default demp directory.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetDemoPath()
 {
 	FString path;
-
-	// A portable INI means that this storage location should also be portable.
 	if (IsPortable())
 	{
 		path << progdir << "Demos/";
 	}
 	else
-	// Try defacto My Documents/My Games folder
 	{
-		// I assume since this isn't a standard folder, it doesn't have a localized name either.
-		path = GetKnownFolder(CSIDL_PERSONAL, FOLDERID_Documents, true);
+		path = GetKnownFolder(CSIDL_PERSONAL, NULL, true);
 		path << "/My Games/" GAMENAME "/";
 	}
-
 	return path;
 }
 
-//===========================================================================
+//==========================================================================
 //
-// M_NormalizedPath
+// M_GetNormalizedPath
 //
-// Normalizes the given path and returns the result.
-//
-//===========================================================================
-
+//==========================================================================
 FString M_GetNormalizedPath(const char* path)
 {
 	std::wstring wpath = WideString(path);

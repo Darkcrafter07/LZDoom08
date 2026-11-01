@@ -1,11 +1,20 @@
-cmake_minimum_required( VERSION 3.16.0 )
-
+cmake_minimum_required(VERSION 3.16.0)
 include(precompiled_headers)
+
+# Declare global presets before any targets are defined
+option(MadeForWinXP     "Enable compatibility configurations for Windows XP" OFF)
+option(IKnowTheUnknown  "Enable the IKnowTheUnknown preset configuration" OFF)
+
+# ==================================== IKnowTheUnknown Patch - START ================================================================
+if(IKnowTheUnknown)
+    message(STATUS "[Global] IKnowTheUnknown preset is ENABLED. Injecting 'typedef struct IUnknown IUnknown;' header patch...")
+    add_definitions(-DIKNOW_UNKNOWN)
+endif()
+# ==================================== IKnowTheUnknown Patch - FINISH ===============================================================
 
 if( COMMAND cmake_policy )
 	cmake_policy( SET CMP0003 NEW )
 endif()
-
 include( CheckCXXSourceCompiles )
 include( CheckFunctionExists )
 include( CheckCXXCompilerFlag )
@@ -63,7 +72,16 @@ if( WIN32 )
 		set( XBITS x86 )
 	endif()
 
-	add_definitions( -D_WIN32 )
+	# ==================================== Windows XP patch - START ====================================
+	if(MadeForWinXP)
+	add_compile_definitions(XPPATCH)
+		# Windows XP compatibility layer
+		add_definitions( -D_WIN32 -D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -Dno_sanitize_address= )
+	else()
+		# Default target: Windows Vista and higher (0x0600)
+		add_definitions( -D_WIN32 )
+	endif()
+	# ==================================== Windows XP patch - FINISH ===================================
 
 	set( PROJECT_LIBRARIES
 		psapi
@@ -299,10 +317,28 @@ if( DEM_CMAKE_COMPILER_IS_GNUCXX_COMPATIBLE )
 	# which is a royal pain. The previous version I had been using was fine with them.
 	# MinGW: switch to the Windows Unicode API.
 	if( WIN32 )
+		# C++ Flags (Original)
 		set( CMAKE_CXX_FLAGS "-Wno-unknown-pragmas -Wno-comment -Wno-format ${CMAKE_CXX_FLAGS}" )
 		set( CMAKE_CXX_FLAGS "-D_UNICODE -DUNICODE ${CMAKE_CXX_FLAGS}" )
-		set( CMAKE_CXX_FLAGS "-D_WIN32_WINNT=0x0600 ${CMAKE_CXX_FLAGS}" )
+		
+		# =================================== Windows XP Patch - START ====================================
+		if(MadeForWinXP)
+			set( CMAKE_CXX_FLAGS "-D_WIN32_WINNT=0x0501 ${CMAKE_CXX_FLAGS}" )
+		else()
+			# Default layout for modern OS versions (Vista+)
+			set( CMAKE_CXX_FLAGS "-D_WIN32 ${CMAKE_CXX_FLAGS}" )
+		endif()
+		# =================================== Windows XP Patch - FINISH ===================================
+
 		set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -municode" )
+
+		# =================================== Windows XP Patch - START ====================================
+		if(MadeForWinXP)
+			# Mirror critical platform macros to C flags for lzma/bz2 libraries
+			set( CMAKE_C_FLAGS "-D_UNICODE -DUNICODE ${CMAKE_C_FLAGS}" )
+			set( CMAKE_C_FLAGS "-D_WIN32_WINNT=0x0502 ${CMAKE_C_FLAGS}" )
+		endif()
+		# =================================== Windows XP Patch - FINISH ===================================
 	endif()
 
 	# Detect FreeBSD and add flags

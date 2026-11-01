@@ -44,6 +44,8 @@
 #include <sys/stat.h>
 #endif // __unix__
 
+extern bool winXPcompat; // XP patch: declared in win32, i_main.cpp
+
 //==========================================================================
 //
 // D_AddFile
@@ -115,7 +117,21 @@ bool D_AddFile(std::vector<std::string>& wadfiles, const char* file, bool check,
 	}
 
 	std::string f = file;
-	for (auto& c : f) if (c == '\\') c = '/';
+	
+	// ==== XP patch - START ====
+	if (winXPcompat)
+	{
+		// Windows XP strictly requires backslashes for native file system verification.
+		// Force convert any accidentally generated forward slashes to backslashes.
+		for (auto& c : f) if (c == '/') c = '\\';
+	}
+	else
+	{
+		// Original modern Windows / Unix behavior
+		for (auto& c : f) if (c == '\\') c = '/';
+	}
+	// ==== XP patch - FINISH ====
+
 	if (position == -1) wadfiles.push_back(f);
 	else wadfiles.insert(wadfiles.begin() + position, f);
 	return true;

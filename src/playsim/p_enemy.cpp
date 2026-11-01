@@ -75,6 +75,8 @@ static FRandom pr_stayonlift("StayOnLift");
 static FRandom pr_skiptarget("SkipTarget");
 static FRandom pr_enemystrafe("EnemyStrafe");
 
+FRandom pr_shadowaimz("VerticalShadowAim");
+
 // movement interpolation is fine for objects that are moved by their own
 // velocity. But for monsters it is problematic.
 // 1. They don't move every tic

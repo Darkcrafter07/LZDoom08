@@ -42,6 +42,10 @@
 ** compile with something other than Visual C++ or GCC.
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <cassert>
 #include "autosegs.h"
 

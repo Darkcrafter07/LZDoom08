@@ -45,6 +45,10 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

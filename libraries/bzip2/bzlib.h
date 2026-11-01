@@ -18,7 +18,6 @@
    in the file LICENSE.
    ------------------------------------------------------------------ */
 
-
 #ifndef _BZLIB_H
 #define _BZLIB_H
 

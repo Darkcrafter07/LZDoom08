@@ -42,6 +42,9 @@
 #include "fs_findfile.h"
 #include "fs_swap.h"
 #include "fs_stringpool.h"
+#ifdef XPPATCH
+#include <algorithm> // XP patch
+#endif
 
 namespace FileSys {
 	using namespace byteswap;

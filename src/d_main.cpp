@@ -149,6 +149,7 @@ extern void ReadStatistics();
 extern void M_SetDefaultMode ();
 extern void G_NewInit ();
 extern void SetupPlayerClasses ();
+extern bool winXPcompat; // XP patch: declared in win32, i_main.cpp
 void DeinitMenus();
 void CloseNetwork();
 void P_Shutdown();
@@ -159,6 +160,7 @@ void SetConsoleNotifyBuffer();
 void I_UpdateDiscordPresence(bool SendPresence, const char* curstatus, const char* appid, const char* steamappid);
 bool M_SetSpecialMenu(FName& menu, int param);	// game specific checks
 
+// D_FindIWAD - undefined (not found), not used anywhere perhaps
 const FIWADInfo *D_FindIWAD(TArray<FString> &wadfiles, const char *iwad, const char *basewad);
 
 // PUBLIC FUNCTION PROTOTYPES ----------------------------------------------
@@ -3667,6 +3669,16 @@ static int D_DoomMain_Internal (void)
 	// [RH] Make sure zdoom.pk3 is always loaded,
 	// as it contains magic stuff we need.
 	wad = BaseFileSearch(BASEWAD, NULL, true, GameConfig);
+#ifdef _WIN32
+	if (wad == NULL && winXPcompat)
+	{
+		// If auto-search failed on XP, check if the file is right next to the EXE
+		if (FileExists(BASEWAD))
+		{
+			wad = BASEWAD;
+		}
+	}
+#endif
 	if (wad == NULL)
 	{
 		I_FatalError("Cannot find " BASEWAD);
@@ -3738,8 +3750,7 @@ static int D_DoomMain_Internal (void)
 		// restart is initiated without a defined IWAD assume for now that it's not going to change.
 		if (iwad.IsEmpty()) iwad = lastIWAD;
 
-		std::vector<std::string> allwads;
-		
+		std::vector<std::string> allwads;		
 		const FIWADInfo *iwad_info = iwad_man->FindIWAD(allwads, iwad.GetChars(), basewad.GetChars(), optionalwad.GetChars());
 		if (!iwad_info) return 0;	// user exited the selection popup via cancel button.
 		if ((iwad_info->flags & GI_SHAREWARE) && pwads.size() > 0)
@@ -3763,7 +3774,8 @@ static int D_DoomMain_Internal (void)
 				index++;
 			}
 			if (failedcheck)
-				GameStartupInfo.DiscordAppId = '\0';
+				GameStartupInfo.DiscordAppId = "";
+				GameStartupInfo.SteamAppId = "";
 		}
 
 		if (GameStartupInfo.SteamAppId.GetChars())
@@ -3781,7 +3793,8 @@ static int D_DoomMain_Internal (void)
 				index++;
 			}
 			if (failedcheck)
-				GameStartupInfo.SteamAppId = '\0';
+				GameStartupInfo.DiscordAppId = "";
+				GameStartupInfo.SteamAppId = "";
 		}
 
 		int ret = D_InitGame(iwad_info, allwads, pwads);

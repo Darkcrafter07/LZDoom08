@@ -17,7 +17,7 @@ extern FRandom pr_spawnmissile;
 extern FRandom pr_facetarget;
 extern FRandom pr_railface;
 extern FRandom pr_crailgun;
-inline FRandom pr_shadowaimz("VerticalShadowAim");
+extern FRandom pr_shadowaimz;
 
 //==========================================================================
 //

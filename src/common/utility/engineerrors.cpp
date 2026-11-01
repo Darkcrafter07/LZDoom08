@@ -33,6 +33,10 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 bool gameisdead;
 
 #include <cstdarg>

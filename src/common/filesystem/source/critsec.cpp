@@ -31,6 +31,57 @@
 **
 */
 
+// === VISTA and higher - START ====================
+//#ifdef _WIN32
+//
+//#ifndef _WINNT_
+//#define WIN32_LEAN_AND_MEAN
+//#include <windows.h>
+//#endif
+//
+//namespace FileSys {
+//
+//class FInternalCriticalSection
+//{
+//public:
+//	void Enter()
+//	{
+//		AcquireSRWLockExclusive(&CritSec);
+//	}
+//	void Leave()
+//	{
+//		ReleaseSRWLockExclusive(&CritSec);
+//	}
+//private:
+//	SRWLOCK CritSec = SRWLOCK_INIT;
+//};
+//
+//
+//FInternalCriticalSection *CreateCriticalSection()
+//{
+//	return new FInternalCriticalSection();
+//}
+//
+//void DeleteCriticalSection(FInternalCriticalSection *c)
+//{
+//	delete c;
+//}
+//
+//void EnterCriticalSection(FInternalCriticalSection *c)
+//{
+//	c->Enter();
+//}
+//
+//void LeaveCriticalSection(FInternalCriticalSection *c)
+//{
+//	c->Leave();
+//}
+//
+// === VISTA and higher - FINISH ====================
+
+
+
+// === XP and higher - START ====================
 #ifdef _WIN32
 
 #ifndef _WINNT_
@@ -40,43 +91,57 @@
 
 namespace FileSys {
 
-class FInternalCriticalSection
-{
-public:
-	void Enter()
+	class FInternalCriticalSection
 	{
-		AcquireSRWLockExclusive(&CritSec);
-	}
-	void Leave()
+	public:
+		FInternalCriticalSection()
+		{
+			::InitializeCriticalSection(&CritSec);
+		}
+
+		~FInternalCriticalSection()
+		{
+			::DeleteCriticalSection(&CritSec);
+		}
+
+		void Enter()
+		{
+			::EnterCriticalSection(&CritSec);
+		}
+
+		void Leave()
+		{
+			::LeaveCriticalSection(&CritSec);
+		}
+
+	private:
+		CRITICAL_SECTION CritSec;
+	};
+
+
+	FInternalCriticalSection* CreateCriticalSection()
 	{
-		ReleaseSRWLockExclusive(&CritSec);
+		return new FInternalCriticalSection();
 	}
-private:
-	SRWLOCK CritSec = SRWLOCK_INIT;
-};
 
+	void DeleteCriticalSection(FInternalCriticalSection* c)
+	{
+		delete c;
+	}
 
-FInternalCriticalSection *CreateCriticalSection()
-{
-	return new FInternalCriticalSection();
-}
+	void EnterCriticalSection(FInternalCriticalSection* c)
+	{
+		c->Enter();
+	}
 
-void DeleteCriticalSection(FInternalCriticalSection *c)
-{
-	delete c;
-}
-
-void EnterCriticalSection(FInternalCriticalSection *c)
-{
-	c->Enter();
-}
-
-void LeaveCriticalSection(FInternalCriticalSection *c)
-{
-	c->Leave();
-}
+	void LeaveCriticalSection(FInternalCriticalSection* c)
+	{
+		c->Leave();
+	}
+// === XP and higher - FINISH ====================
 
 #else
+
 
 #include "critsec.h"
 

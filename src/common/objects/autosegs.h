@@ -32,6 +32,7 @@
 **
 */
 
+// autosegs.h
 #ifndef AUTOSEGS_H
 #define AUTOSEGS_H
 
@@ -49,10 +50,22 @@
 #endif
 
 #if defined _MSC_VER
+#if (_MSC_VER >= 1920) // only supported in MSVC 2019+
 #define NO_SANITIZE_M __declspec(no_sanitize_address)
+#else
+#define NO_SANITIZE_M  // Absolute emptiness for v140_xp toolset
+#endif
 #else
 #define NO_SANITIZE_M
 #endif
+
+// Backport std::invoke_result_t for old VS2015/v140_xp
+namespace std {
+#if __cplusplus < 201703L && !defined(_HAS_CXX17)
+	template <typename F, typename... Args>
+	using invoke_result_t = typename std::result_of<F(Args...)>::type;
+#endif
+}
 
 class FAutoSeg
 {
@@ -109,7 +122,7 @@ public:
 	}
 
 	template <typename Func>
-	void NO_SANITIZE_M ForEach(Func func, std::enable_if_t<HasReturnTypeV<Func, void>> * = nullptr)
+	NO_SANITIZE_M void ForEach(Func func, std::enable_if_t<HasReturnTypeV<Func, void>> * = nullptr)
 	{
 		using CallableType = decltype(&Func::operator());
 		using ArgType = typename ArgumentType<CallableType>::Type;
@@ -124,7 +137,7 @@ public:
 	}
 
 	template <typename Func>
-	void NO_SANITIZE_M ForEach(Func func, std::enable_if_t<HasReturnTypeV<Func, bool>> * = nullptr)
+	NO_SANITIZE_M void ForEach(Func func, std::enable_if_t<HasReturnTypeV<Func, bool>> * = nullptr)
 	{
 		using CallableType = decltype(&Func::operator());
 		using ArgType = typename ArgumentType<CallableType>::Type;

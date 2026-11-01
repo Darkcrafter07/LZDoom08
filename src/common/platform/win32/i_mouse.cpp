@@ -33,6 +33,10 @@
 
 // HEADER FILES ------------------------------------------------------------
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define DIRECTINPUT_VERSION 0x800
 #include <windows.h>

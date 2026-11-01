@@ -1,4 +1,8 @@
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <assert.h>
 #include "hardware.h"
 #include "engineerrors.h"

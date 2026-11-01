@@ -32,6 +32,10 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <windows.h>
 #include <GL/gl.h>
 #include <vector>

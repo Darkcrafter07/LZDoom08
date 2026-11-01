@@ -31,6 +31,7 @@
 **
 */
 
+// gameconfigfile.h
 #ifndef __GAMECONFIGFILE_H__
 #define __GAMECONFIGFILE_H__
 
@@ -44,7 +45,7 @@ class FIWadManager;
 class FGameConfigFile : public FConfigFile
 {
 public:
-	FGameConfigFile ();
+	FGameConfigFile (); // not found
 	~FGameConfigFile ();
 
 	void DoAutoloadSetup (FIWadManager *iwad_man);
@@ -65,7 +66,7 @@ protected:
 private:
 	void SetRavenDefaults (bool isHexen);
 	void SetStrifeDefaults ();
-	void ReadCVars (unsigned flags);
+	void ReadCVars (unsigned flags); // not found
 
 	bool bModSetup;
 

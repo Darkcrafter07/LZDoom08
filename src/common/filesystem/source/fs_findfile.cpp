@@ -1,5 +1,5 @@
 /*
-** findfile.cpp
+** fs_findfile.cpp
 ** Wrapper around the native directory scanning APIs
 **
 **---------------------------------------------------------------------------
@@ -32,7 +32,12 @@
 **
 */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "fs_findfile.h"
+#include "fs_filesystem.h"
 #include <string.h>
 #include <vector>
 #include <sys/stat.h>
@@ -49,6 +54,12 @@
 #include <dirent.h>
 
 #endif
+
+#ifdef XPPATCH
+#include <algorithm> // XP patch
+#endif
+
+extern bool winXPcompat;
 
 namespace FileSys {
 	
@@ -409,16 +420,24 @@ bool FS_DirEntryExists(const char* pathname, bool* isdir)
 {
 	if (isdir) *isdir = false;
 	if (pathname == NULL || *pathname == 0)
-		return false;
+	return false;
+	bool res = false;
 
 #ifndef _WIN32
 	struct stat info;
-	bool res = stat(pathname, &info) == 0;
+	res = stat(pathname, &info) == 0;
 #else
 	// Windows must use the wide version of stat to preserve non-standard paths.
 	auto wstr = toWide(pathname);
 	struct _stat64 info;
-	bool res = _wstat64(wstr.c_str(), &info) == 0;
+	if (winXPcompat)
+	{
+		res = FileSys::FileSystem::wstat32xp(wstr.c_str(), &info) == 0;
+	}
+	else
+	{
+		res = _wstat64(wstr.c_str(), &info) == 0;
+	}
 #endif
 	if (isdir) *isdir = !!(info.st_mode & S_IFDIR);
 	return res;
