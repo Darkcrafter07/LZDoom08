@@ -1,3 +1,10 @@
+
+
+
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "src/util/c99_stdint.h"
 #include <stddef.h>
 #include <set>

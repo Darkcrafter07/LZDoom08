@@ -11,6 +11,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #include <assert.h>
 #include <stdlib.h>
 #include <math.h>

@@ -11,6 +11,10 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include <assert.h>
 #include <limits.h>
 #include <stdlib.h>

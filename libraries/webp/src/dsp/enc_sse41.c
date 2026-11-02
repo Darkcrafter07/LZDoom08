@@ -20,6 +20,8 @@
 #include "src/dsp/common_sse2.h"
 #include "src/enc/vp8i_enc.h"
 
+typedef struct IUnknown IUnknown; // XP patch
+
 //------------------------------------------------------------------------------
 // Compute susceptibility based on DCT-coeff histograms.
 

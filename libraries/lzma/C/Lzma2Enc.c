@@ -1,6 +1,10 @@
 /* Lzma2Enc.c -- LZMA2 Encoder
 2023-04-13 : Igor Pavlov : Public domain */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "Precomp.h"
 
 #include <string.h>

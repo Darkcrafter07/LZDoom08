@@ -17,6 +17,7 @@ class DynamicLight : Actor
 	flagdef spot: lightflags, 6;
 	flagdef dontlightothers: lightflags, 7;
 	flagdef dontlightmap: lightflags, 8;
+	flagdef camglowdynlight: lightflags, 9;   // Bit 9 (Value: 512) - Software camglow simulator
 
 	enum EArgs
 	{
@@ -342,6 +343,17 @@ class SpotLightFlickerAdditive : SpotLightFlicker
 	Default
 	{
 		+DYNAMICLIGHT.ADDITIVE
+	}
+}
+
+class SpotLightCamGlow : DynamicLight
+{
+	Default
+	{
+		DynamicLight.Type "Point"; 
+		+DYNAMICLIGHT.SPOT
+		+DYNAMICLIGHT.DONTLIGHTOTHERS
+		+DYNAMICLIGHT.CAMGLOWDYNLIGHT
 	}
 }
 

@@ -22,6 +22,8 @@
 #include "src/enc/cost_enc.h"
 #include "src/enc/vp8i_enc.h"
 
+typedef struct IUnknown IUnknown; // XP patch
+
 //------------------------------------------------------------------------------
 // Transforms (Paragraph 14.4)
 

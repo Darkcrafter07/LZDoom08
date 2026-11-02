@@ -1,3 +1,5 @@
+typedef struct IUnknown IUnknown; // XP patch
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

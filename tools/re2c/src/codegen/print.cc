@@ -1,3 +1,6 @@
+
+typedef struct IUnknown IUnknown; // XP patch
+
 #include <iostream>
 
 #include "src/codegen/print.h"

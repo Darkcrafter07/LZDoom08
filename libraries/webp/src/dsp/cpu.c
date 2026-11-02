@@ -11,6 +11,8 @@
 //
 // Author: Christian Duvivier (cduvivier@google.com)
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #include "src/dsp/cpu.h"
 
 #if defined(WEBP_HAVE_NEON_RTCD)

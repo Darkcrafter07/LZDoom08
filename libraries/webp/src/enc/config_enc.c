@@ -11,6 +11,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #ifdef HAVE_CONFIG_H
 #include "include/webp/config.h"
 #endif

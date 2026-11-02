@@ -10,6 +10,10 @@
 //  AnimDecoder implementation.
 //
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #ifdef HAVE_CONFIG_H
 #include "include/webp/config.h"
 #endif

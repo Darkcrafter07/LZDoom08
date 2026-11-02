@@ -1,6 +1,10 @@
 /* Lzma2DecMt.c -- LZMA2 Decoder Multi-thread
 2023-04-13 : Igor Pavlov : Public domain */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "Precomp.h"
 
 // #define SHOW_DEBUG_INFO

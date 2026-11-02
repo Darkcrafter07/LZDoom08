@@ -1,6 +1,8 @@
 /* Xz.c - Xz
 2023-04-02 : Igor Pavlov : Public domain */
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #include "Precomp.h"
 
 #include "7zCrc.h"

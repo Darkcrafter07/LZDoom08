@@ -9,6 +9,9 @@
 //
 // Author: Jyrki Alakuijala (jyrki@google.com)
 //
+
+typedef struct IUnknown IUnknown; // XP patch
+
 #ifdef HAVE_CONFIG_H
 #include "include/webp/config.h"
 #endif

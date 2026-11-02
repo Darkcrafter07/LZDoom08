@@ -1,4 +1,14 @@
+#CMakeLists.txt ROOT
 cmake_minimum_required( VERSION 3.16 )
+
+
+option(IKnowTheUnknown  "Enable the IKnowTheUnknown preset configuration" OFF)
+# ==================================== IKnowTheUnknown Patch - START ================================================================
+if(IKnowTheUnknown)
+    message(STATUS "[Global] IKnowTheUnknown preset is ENABLED. Injecting 'typedef struct IUnknown IUnknown;' header patch...")
+    #add_definitions(-DIKNOW_UNKNOWN)
+endif()
+# ==================================== IKnowTheUnknown Patch - FINISH ===============================================================
 
 if( COMMAND cmake_policy )
 	if( POLICY CMP0011 )
@@ -240,10 +250,14 @@ if( MSVC )
 	# Perform identical COMDAT folding
 	set( REL_LINKER_FLAGS "/opt:ref /opt:icf /nodefaultlib:msvcrt /TSAWARE /LARGEADDRESSAWARE" )
 
-	# String pooling
-	# Function-level linking
-	# Disable run-time type information
-	set( ALL_C_FLAGS "/GF /Gy /permissive-" )
+	# String pooling / Function-level linking / Disable run-time type information
+	# ==== XP Patch: Swap /permissive- with /permissive when targeting Windows XP to fix C2760 ====
+	if(MadeForWinXP)
+		set( ALL_C_FLAGS "/GF /Gy /permissive" )
+	else()
+		set( ALL_C_FLAGS "/GF /Gy /permissive-" )
+	endif()
+	# ============================================================================================
 
 	if ( HAVE_VULKAN )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_VULKAN" )
@@ -387,6 +401,12 @@ else()
 	set( BZIP2_LIBRARIES bz2 )
 	set( BZIP2_LIBRARY bz2 )
 endif()
+
+# ZMUSIC
+add_subdirectory( libraries/zmusic )
+set( ZMUSIC_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libraries/zmusic" )
+set( ZMUSIC_INCLUDE_DIR ${ZMUSIC_ROOT_PATH}/include )
+set( ZMUSIC_LIBRARIES zmusic )
 
 set( LZMA_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libraries/lzma/C" )
 

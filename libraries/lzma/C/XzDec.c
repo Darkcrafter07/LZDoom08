@@ -1,6 +1,8 @@
 /* XzDec.c -- Xz Decode
 2023-04-13 : Igor Pavlov : Public domain */
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #include "Precomp.h"
 
 // #include <stdio.h>

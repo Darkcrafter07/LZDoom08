@@ -1,3 +1,6 @@
+
+typedef struct IUnknown IUnknown; // XP patch
+
 #include <windows.h>
 
 // outsmart GCC's missing-declarations warning

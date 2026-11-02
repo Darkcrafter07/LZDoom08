@@ -1,6 +1,10 @@
 /* XzIn.c - Xz input
 2023-04-02 : Igor Pavlov : Public domain */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "Precomp.h"
 
 #include <string.h>

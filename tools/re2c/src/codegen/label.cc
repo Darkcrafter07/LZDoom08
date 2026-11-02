@@ -1,3 +1,6 @@
+
+typedef struct IUnknown IUnknown; // XP patch
+
 #include <ostream>
 
 #include "src/codegen/label.h"

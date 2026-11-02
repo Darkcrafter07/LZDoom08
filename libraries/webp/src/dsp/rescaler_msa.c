@@ -13,6 +13,8 @@
 
 #include "src/dsp/dsp.h"
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #if defined(WEBP_USE_MSA) && !defined(WEBP_REDUCE_SIZE)
 
 #include <assert.h>

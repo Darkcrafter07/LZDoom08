@@ -1,6 +1,10 @@
 /* CpuArch.c -- CPU specific code
 2023-05-18 : Igor Pavlov : Public domain */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "Precomp.h"
 
 // #include <stdio.h>

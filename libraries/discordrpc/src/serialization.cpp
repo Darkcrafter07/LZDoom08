@@ -1,3 +1,10 @@
+
+
+
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "serialization.h"
 #include "connection.h"
 #include "discord_rpc.h"

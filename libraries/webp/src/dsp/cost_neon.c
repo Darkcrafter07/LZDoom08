@@ -9,6 +9,8 @@
 //
 // ARM NEON version of cost functions
 
+typedef struct IUnknown IUnknown; // XP patch
+
 #include "src/dsp/dsp.h"
 
 #if defined(WEBP_USE_NEON)

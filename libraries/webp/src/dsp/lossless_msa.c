@@ -11,6 +11,10 @@
 //
 // Author: Prashant Patil (prashant.patil@imgtec.com)
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "src/dsp/dsp.h"
 
 #if defined(WEBP_USE_MSA)

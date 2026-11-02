@@ -1,6 +1,10 @@
 /* Delta.c -- Delta converter
 2021-02-09 : Igor Pavlov : Public domain */
 
+#ifdef IKNOW_UNKNOWN
+typedef struct IUnknown IUnknown; // XP patch
+#endif
+
 #include "Precomp.h"
 
 #include "Delta.h"
