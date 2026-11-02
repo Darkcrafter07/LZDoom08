@@ -61,6 +61,34 @@ typedef struct IUnknown IUnknown; // XP patch
 #include "gles_framebuffer.h"
 #endif
 
+#include "common/rendering/gl_load/gl_interface.h"
+#include "common/rendering/hwrenderer/data/hw_cvars.h"
+
+// ===== GL1x Patch - START  ===============================
+// [Darkcrafter07] - Manual lean definitions for clean OpenGL 1.1 execution on WinXP
+// This completely bypasses conflicts with auto-generated gl_load.h headers
+#ifndef GL_PROJECTION
+#define GL_PROJECTION 0x1701
+#endif
+#ifndef GL_MODELVIEW
+#define GL_MODELVIEW  0x1700
+#endif
+#ifndef GL_BLEND
+#define GL_BLEND      0x0BE2
+#endif
+#ifndef GL_ALPHA_TEST
+#define GL_ALPHA_TEST 0x0BC0
+#endif
+#ifndef GL_DEPTH_TEST
+#define GL_DEPTH_TEST 0x0B71
+#endif
+
+// Define function pointer types matching OpenGL 1.1 APIENTRY
+typedef void(__stdcall* PFN_glMatrixMode)(unsigned int mode);
+typedef void(__stdcall* PFN_glLoadIdentity)(void);
+typedef void(__stdcall* PFN_glDisable)(unsigned int cap);
+// ===== GL1x Patch - FINISH ===============================
+
 extern "C" {
 HGLRC zd_wglCreateContext(HDC Arg1);
 BOOL zd_wglDeleteContext(HGLRC Arg1);
@@ -418,6 +446,68 @@ bool Win32GLVideo::SetupPixelFormat(int multisample)
 //
 //==========================================================================
 
+//bool Win32GLVideo::InitHardware(HWND Window, int multisample)
+//{
+//	m_Window = Window;
+//	m_hDC = GetDC(Window);
+//
+//	if (!SetupPixelFormat(multisample))
+//	{
+//		return false;
+//	}
+//
+//	int prof = WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
+//
+//	for (; prof <= WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; prof++)
+//	{
+//		m_hRC = NULL;
+//		if (myWglCreateContextAttribsARB != NULL)
+//		{
+//			// let's try to get the best version possible. Some drivers only give us the version we request
+//			// which breaks all version checks for feature support. The highest used features we use are from version 4.4, and 3.3 is a requirement.
+//			static int versions[] = { 46, 45, 44, 43, 42, 41, 40, 33, -1 };
+//
+//			for (int i = 0; versions[i] > 0; i++)
+//			{
+//				int ctxAttribs[] = {
+//					WGL_CONTEXT_MAJOR_VERSION_ARB, versions[i] / 10,
+//					WGL_CONTEXT_MINOR_VERSION_ARB, versions[i] % 10,
+//					WGL_CONTEXT_FLAGS_ARB, gl_debug ? WGL_CONTEXT_DEBUG_BIT_ARB : 0,
+//					WGL_CONTEXT_PROFILE_MASK_ARB, prof,
+//					0
+//				};
+//
+//				m_hRC = myWglCreateContextAttribsARB(m_hDC, 0, ctxAttribs);
+//				if (m_hRC != NULL) break;
+//			}
+//		}
+//
+//		if (m_hRC == NULL && prof == WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB)
+//		{
+//			m_hRC = zd_wglCreateContext(m_hDC);
+//			if (m_hRC == NULL)
+//			{
+//				I_Error("R_OPENGL: Unable to create an OpenGL render context.\n");
+//				return false;
+//			}
+//		}
+//
+//		if (m_hRC != NULL)
+//		{
+//			zd_wglMakeCurrent(m_hDC, m_hRC);
+//			return true;
+//		}
+//	}
+//	// We get here if the driver doesn't support the modern context creation API which always means an old driver.
+//	I_Error("R_OPENGL: Unable to create an OpenGL render context. Insufficient driver support for context creation\n");
+//	return false;
+//}
+
+// [Darkcrafter07] - Global hardware contexts bridges explicitly stored as pure void pointers 
+// to prevent cross-platform include stalls and macros corruption in engine loops.
+void* g_Legacy_hDC_Bridge = nullptr;
+void* g_Legacy_hRC_Bridge = nullptr;
+
 bool Win32GLVideo::InitHardware(HWND Window, int multisample)
 {
 	m_Window = Window;
@@ -426,6 +516,46 @@ bool Win32GLVideo::InitHardware(HWND Window, int multisample)
 	if (!SetupPixelFormat(multisample))
 	{
 		return false;
+	}
+
+	// [Darkcrafter07] - Intercept and force legacy OpenGL 1.x fixed-function pipeline for ancient hardware on Windows XP
+	if (gl_usegl1mode)
+	{
+		// Use the new wrapped context creation to prevent breaking engine internal hooks
+		m_hRC = zd_wglCreateContext(m_hDC);
+
+		if (m_hRC != NULL)
+		{
+			zd_wglMakeCurrent(m_hDC, m_hRC); // Bind the active rendering thread context
+
+			g_Legacy_hDC_Bridge = (void*)m_hDC;
+			g_Legacy_hRC_Bridge = (void*)m_hRC;
+
+			// Hard-lock the engine global variables instantly to force correct routing scopes
+			gl.legacyMode = true;
+			gl.gl1path = true;
+
+			// Dynamically resolve baseline fixed-function entries directly from system opengl32.dll
+			HMODULE hGlLib = GetModuleHandleA("opengl32.dll");
+			if (hGlLib != NULL)
+			{
+				PFN_glMatrixMode p_glMatrixMode = (PFN_glMatrixMode)GetProcAddress(hGlLib, "glMatrixMode");
+				PFN_glLoadIdentity p_glLoadIdentity = (PFN_glLoadIdentity)GetProcAddress(hGlLib, "glLoadIdentity");
+				PFN_glDisable p_glDisable = (PFN_glDisable)GetProcAddress(hGlLib, "glDisable");
+
+				// Safe setup texture units configurations and reset matrix states baseline if resolved
+				if (p_glMatrixMode && p_glLoadIdentity && p_glDisable)
+				{
+					p_glMatrixMode(GL_PROJECTION); p_glLoadIdentity();
+					p_glMatrixMode(GL_MODELVIEW); p_glLoadIdentity();
+					p_glDisable(GL_BLEND);
+					p_glDisable(GL_ALPHA_TEST);
+					p_glDisable(GL_DEPTH_TEST);
+				}
+			}
+
+			return true; // Instant safe release return!
+		}
 	}
 
 	int prof = WGL_CONTEXT_CORE_PROFILE_BIT_ARB;

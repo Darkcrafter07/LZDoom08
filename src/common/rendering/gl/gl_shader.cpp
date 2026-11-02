@@ -689,6 +689,15 @@ FShader *FShaderCollection::Compile (const char *ShaderName, const char *ShaderP
 	if (passType == GBUFFER_PASS) defines += "#define GBUFFER_PASS\n";
 
 	FShader *shader = NULL;
+
+	if (gl.legacyMode)
+	{
+		// GL1x/GL2x - only allocate an empty wrapper object so the engine's arrays (MaterialShaders) 
+		// are populated with non-null pointers, protecting subsequent asset queries from crashes
+		shader = new FShader(ShaderName);
+		return shader;
+	}
+
 	try
 	{
 		shader = new FShader(ShaderName);
@@ -720,6 +729,12 @@ FShaderManager::FShaderManager()
 
 bool FShaderManager::CompileNextShader()
 {
+	if (gl.legacyMode)
+	{
+		// GL1x/GL2x - disable shaders compilation as they're not supported
+		return true; // fake successful compilation sequence complete
+	}
+
 	if (mPassShaders[mCompilePass]->CompileNextShader())
 	{
 		mCompilePass++;
@@ -810,6 +825,11 @@ FShaderCollection::~FShaderCollection()
 
 bool FShaderCollection::CompileNextShader()
 {
+	if (gl.legacyMode)
+	{
+		// GL1x/GL2x - disable shaders compilation as they're not supported
+		return true; // fake successful compilation sequence complete
+	}
 	int i = mCompileIndex;
 	if (mCompileState == 0)
 	{

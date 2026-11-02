@@ -43,15 +43,21 @@ constexpr int OPAQUE = 65536;
 
 enum ETexMode
 {
-	TM_NORMAL = 0,	// (r, g, b, a)
+	TM_NORMAL = 0,	    // (r, g, b, a)
 	TM_STENCIL,			// (1, 1, 1, a)
 	TM_OPAQUE,			// (r, g, b, 1)
 	TM_INVERSE,			// (1-r, 1-g, 1-b, a)
-	TM_ALPHATEXTURE,		// (1, 1, 1, r)
+	TM_ALPHATEXTURE,	// (1, 1, 1, r)
 	TM_CLAMPY,			// (r, g, b, (t >= 0.0 && t <= 1.0)? a:0)
 	TM_INVERTOPAQUE,	// (1-r, 1-g, 1-b, 1)
 	TM_FOGLAYER,		// (renders a fog layer in the shape of the active texture)
 	TM_FIXEDCOLORMAP = TM_FOGLAYER,	// repurposes the objectcolor uniforms to render a fixed colormap range. (Same constant because they cannot be used in the same context.
+
+	// used by GL1x/GL2x fallback code.
+	TM_MODULATE = 0,	   // (r, g, b, a)
+	TM_MASK,			   // (1, 1, 1, a)
+	TM_REDTOALPHA,		   // (1, 1, 1, r)
+	TM_BRIGHTMAP_LEGACY,   // basically colored, transparency culled brightmaps in GL_ADD mode.
 };
 
 // Legacy render styles

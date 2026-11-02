@@ -253,6 +253,15 @@ public:
 	int GetWidth() { return Width; }
 	int GetHeight() { return Height; }
 
+	// [Darkcrafter07] bring back some functions for Anamorphic Forced-Perspective
+	// needed to determine whether hi-res resized textures have significant sprite offsets
+	int16_t LeftOffset = 0, TopOffset = 0;
+	uint8_t WidthBits = 0, HeightBits = 0;
+	DVector2 Scale = {1.0, 1.0}; // Default scale 1:1
+	int GetScaledWidth() { int foo = int((Width * 2) / Scale.X); return (foo >> 1) + (foo & 1); }
+	int GetScaledHeight() { int foo = int((Height * 2) / Scale.Y); return (foo >> 1) + (foo & 1); }
+	int GetScaledTopOffset() { int foo = int((TopOffset * 2) / Scale.Y); return (foo >> 1) + (foo & 1); }
+
 	bool isHardwareCanvas() const { return bHasCanvas; }	// There's two here so that this can deal with software canvases in the hardware renderer later.
 	bool isCanvas() const { return bHasCanvas; }
 

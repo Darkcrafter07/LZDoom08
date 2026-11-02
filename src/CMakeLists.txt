@@ -1,16 +1,16 @@
 cmake_minimum_required(VERSION 3.16.0)
 include(precompiled_headers)
 
-# Declare global presets before any targets are defined
-option(MadeForWinXP     "Enable compatibility configurations for Windows XP" OFF)
 option(IKnowTheUnknown  "Enable the IKnowTheUnknown preset configuration" OFF)
-
 # ==================================== IKnowTheUnknown Patch - START ================================================================
 if(IKnowTheUnknown)
     message(STATUS "[Global] IKnowTheUnknown preset is ENABLED. Injecting 'typedef struct IUnknown IUnknown;' header patch...")
     add_definitions(-DIKNOW_UNKNOWN)
 endif()
 # ==================================== IKnowTheUnknown Patch - FINISH ===============================================================
+
+# Declare global presets before any targets are defined
+option(MadeForWinXP     "Enable compatibility configurations for Windows XP" OFF)
 
 if( COMMAND cmake_policy )
 	cmake_policy( SET CMP0003 NEW )
@@ -1224,6 +1224,7 @@ set (PCH_SOURCES
 	common/rendering/v_video.cpp
 	common/rendering/r_thread.cpp
 	common/rendering/r_videoscale.cpp
+	common/rendering/a_spriteocclusion3d.cpp
 	common/rendering/hwrenderer/hw_draw2d.cpp
 	common/rendering/hwrenderer/data/hw_clock.cpp
 	common/rendering/hwrenderer/data/hw_skydome.cpp
@@ -1242,10 +1243,12 @@ set (PCH_SOURCES
 	common/rendering/hwrenderer/postprocessing/hw_postprocess_cvars.cpp
 	common/rendering/hwrenderer/postprocessing/hw_postprocessshader_ccmds.cpp
 	common/rendering/gl_load/gl_interface.cpp
+	common/rendering/gl/gl_20.cpp
 	common/rendering/gl/gl_renderer.cpp
 	common/rendering/gl/gl_stereo3d.cpp
 	common/rendering/gl/gl_framebuffer.cpp
 	common/rendering/gl/gl_renderstate.cpp
+	common/rendering/gl/gl_rendergl1xstate.cpp
 	common/rendering/gl/gl_renderbuffers.cpp
 	common/rendering/gl/gl_postprocess.cpp
 	common/rendering/gl/gl_postprocessstate.cpp

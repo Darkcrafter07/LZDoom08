@@ -33,6 +33,7 @@
 **
 */
 
+// gl_hwtexture.cpp
 #include "gl_system.h"
 
 #include "c_cvars.h"
@@ -66,6 +67,59 @@ TexFilter_s TexFilter[] = {
 //
 //===========================================================================
 unsigned int FHardwareTexture::lastbound[FHardwareTexture::MAX_TEXTURES];
+
+//==========================================================================
+//
+// Performs manual CPU-side bilinear scaling to pad non-power-of-two (NPOT)
+// textures into hardware-compliant square (POT) shapes for legacy GPUs.
+//
+//==========================================================================
+static void ManualScaleImage(GLenum format, GLint w, GLint h, GLenum type, const void* input, GLint rw, GLint rh, GLenum typeout, void* output)
+{
+	unsigned char* src = (unsigned char*)input;
+	unsigned char* dst = (unsigned char*)output;
+
+	float x_ratio = (float)w / (float)rw;
+	float y_ratio = (float)h / (float)rh;
+
+	for (int y = 0; y < rh; y++)
+	{
+		float src_y_exact = (float)y * y_ratio;
+		int src_y1 = (int)src_y_exact;
+		int src_y2 = src_y1 + 1;
+		float y_blend = src_y_exact - (float)src_y1;
+
+		if (src_y2 >= h) { src_y2 = h - 1; src_y1 = h - 1; y_blend = 0.0f; }
+
+		for (int x = 0; x < rw; x++)
+		{
+			float src_x_exact = (float)x * x_ratio;
+			int src_x1 = (int)src_x_exact;
+			int src_x2 = src_x1 + 1;
+			float x_blend = src_x_exact - (float)src_x1;
+
+			if (src_x2 >= w) { src_x2 = w - 1; src_x1 = w - 1; x_blend = 0.0f; }
+
+			int idx11 = (src_y1 * w + src_x1) * 4;
+			int idx12 = (src_y1 * w + src_x2) * 4;
+			int idx21 = (src_y2 * w + src_x1) * 4;
+			int idx22 = (src_y2 * w + src_x2) * 4;
+			int dst_idx = (y * rw + x) * 4;
+
+			for (int i = 0; i < 4; i++)
+			{
+				float val11 = src[idx11 + i];
+				float val12 = src[idx12 + i];
+				float val21 = src[idx21 + i];
+				float val22 = src[idx22 + i];
+
+				float top_avg = val11 * (1.0f - x_blend) + val12 * x_blend;
+				float bottom_avg = val21 * (1.0f - x_blend) + val22 * x_blend;
+				dst[dst_idx + i] = (unsigned char)(top_avg * (1.0f - y_blend) + bottom_avg * y_blend);
+			}
+		}
+	}
+}
 
 //===========================================================================
 // 
@@ -105,6 +159,23 @@ unsigned int FHardwareTexture::CreateTexture(unsigned char * buffer, int w, int 
 
 	rw = GetTexDimension(w);
 	rh = GetTexDimension(h);
+
+	if ((gl.gl1path || gl.glnpot) && buffer != nullptr)
+	//if ((gl.legacyMode || gl.gl1path || gl.glnpot) && buffer != nullptr)
+	{
+		if (rw != w || rh != h)
+		{
+			unsigned char* scaledbuffer = (unsigned char*)calloc(4, rw * (rh + 1));
+			if (scaledbuffer != nullptr)
+			{
+				ManualScaleImage(GL_BGRA, w, h, GL_UNSIGNED_BYTE, buffer, rw, rh, GL_UNSIGNED_BYTE, scaledbuffer);
+				if (deletebuffer && buffer != nullptr) free(buffer);
+
+				deletebuffer = true;
+				buffer = scaledbuffer;
+			}
+		}
+	}
 	if (glBufferID > 0)
 	{
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
@@ -185,18 +256,33 @@ void FHardwareTexture::AllocateBuffer(int w, int h, int texelsize)
 	if (texelsize < 1 || texelsize > 4) texelsize = 4;
 	glTextureBytes = texelsize;
 	bufferpitch = w;
+
+	// Legacy Fixed-Pipeline hardware (OpenGL 1.x / 2.0) lacks PBO support
+	// Attempting to use GL_PIXEL_UNPACK_BUFFER drops pixels data, resulting in blank black sheets.
+	if (gl.legacyMode || gl.gl1path)
+	{
+		glBufferID = 0; // Disable PBO backing, force traditional CPU-side pointer arrays path
+		return;
+	}
+
+	// ---=== ORIGINAL MODERN PROFILE SHADER PATHWAY (GL3x+) ===---
 	if (rw == w || rh == h)
 	{
 		glGenBuffers(1, &glBufferID);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, glBufferID);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER, w*h*texelsize, nullptr, GL_STREAM_DRAW);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER, w * h * texelsize, nullptr, GL_STREAM_DRAW);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	}
 }
 
 
-uint8_t *FHardwareTexture::MapBuffer()
+uint8_t* FHardwareTexture::MapBuffer()
 {
+	if (gl.legacyMode || gl.gl1path)
+	{
+		return nullptr; // Forces the engine to skip raw mapped memory mutations inside legacy drawer queues
+	}
+
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, glBufferID);
 	return (uint8_t*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 }
@@ -267,9 +353,16 @@ int FHardwareTexture::GetDepthBuffer(int width, int height)
 {
 	if (glDepthID == 0)
 	{
+		// [Darkcrafter07] - Context validation format enforcement
+		GLenum internalFormat = GL_DEPTH24_STENCIL8;
+		if (gl.legacyMode || gl.gl1path)
+		{
+			internalFormat = GL_DEPTH_COMPONENT24;
+		}
+
 		glGenRenderbuffers(1, &glDepthID);
 		glBindRenderbuffer(GL_RENDERBUFFER, glDepthID);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 
+		glRenderbufferStorage(GL_RENDERBUFFER, internalFormat,
 			GetTexDimension(width), GetTexDimension(height));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	}
@@ -299,7 +392,71 @@ void FHardwareTexture::BindToFrameBuffer(int width, int height)
 //
 //===========================================================================
 
-bool FHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode, int translation, int flags)
+bool FHardwareTexture::BindOrCreate(FTexture* tex, int texunit, int clampmode, int translation, int flags)
+{
+	if (gl.legacyMode)
+	{
+		return BindOrCreateGL1x(tex, texunit, clampmode, translation, flags);
+	}
+	else
+	{
+		return BindOrCreateGL3x(tex, texunit, clampmode, translation, flags);
+	}
+}
+
+bool FHardwareTexture::BindOrCreateGL1x(FTexture* tex, int texunit, int clampmode, int translation, int flags)
+{
+	bool needmipmap = (clampmode <= CLAMP_XY) && !forcenofilter;
+
+	if (!Bind(texunit, needmipmap))
+	{
+		if (flags & CTF_Indexed)
+		{
+			glTextureBytes = 1;
+			forcenofilter = true;
+			needmipmap = false;
+		}
+		int w = 0, h = 0;
+
+		FTextureBuffer texbuffer;
+
+		if (!tex->isHardwareCanvas())
+		{
+			texbuffer = tex->CreateTexBuffer(translation, flags | CTF_ProcessData);
+			w = texbuffer.mWidth;
+			h = texbuffer.mHeight;
+		}
+		else
+		{
+			w = tex->GetWidth();
+			h = tex->GetHeight();
+		}
+
+		// Allocates texture via our POT-aligned manual resizer pipeline
+		if (!CreateTexture(texbuffer.mBuffer, w, h, texunit, needmipmap, "FHardwareTexture.BindOrCreateGL1x"))
+		{
+			return false;
+		}
+	}
+
+	if (forcenofilter && clampmode <= CLAMP_XY) clampmode += CLAMP_NOFILTER - CLAMP_NONE;
+
+	glActiveTexture(GL_TEXTURE0 + texunit);
+	glBindTexture(GL_TEXTURE_2D, glTexID);
+
+	GLenum wrapMode = (clampmode >= CLAMP_X) ? GL_CLAMP_TO_EDGE : GL_REPEAT;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
+
+	GLenum filterMode = forcenofilter ? GL_NEAREST : GL_LINEAR;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, needmipmap ? GL_LINEAR_MIPMAP_NEAREST : filterMode);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterMode);
+
+	glActiveTexture(GL_TEXTURE0); // Return state context pointer back to safety
+	return true;
+}
+
+bool FHardwareTexture::BindOrCreateGL3x(FTexture *tex, int texunit, int clampmode, int translation, int flags)
 {
 	bool needmipmap = (clampmode <= CLAMP_XY) && !forcenofilter;
 

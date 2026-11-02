@@ -1,4 +1,5 @@
 /*
+** v_video.cpp
 ** Video basics and init code.
 **
 **---------------------------------------------------------------------------
@@ -342,7 +343,7 @@ bool IVideo::SetResolution ()
 	}
 
 	screen = buff;
-	screen->InitializeState();
+	screen->InitializeState(); // çäåñü
 
 	V_UpdateModeSize(screen->GetWidth(), screen->GetHeight());
 
@@ -408,7 +409,7 @@ void V_Init2()
 
 	I_InitGraphics();
 
-	Video->SetResolution();	// this only fails via exceptions.
+	Video->SetResolution();	// this only fails via exceptions. //ÇÄÅÑÜ
 	Printf ("Resolution: %d x %d\n", SCREENWIDTH, SCREENHEIGHT);
 
 	// init these for the scaling menu

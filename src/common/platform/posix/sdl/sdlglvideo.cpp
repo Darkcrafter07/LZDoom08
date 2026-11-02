@@ -886,3 +886,11 @@ void I_SetWindowTitle(const char* caption)
 	}
 }
 
+namespace Priv
+{
+	// [Darkcrafter07] - Helper bridge to expose SDL Window to the rendering engine scene
+	void* GetSDLWindowHandleLegacy()
+	{
+		return (void*)window;
+	}
+}

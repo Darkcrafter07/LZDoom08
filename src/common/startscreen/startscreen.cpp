@@ -50,6 +50,9 @@
 #include "g_input.h"
 #include "texturemanager.h"
 
+#include "common/rendering/gl_load/gl_system.h"    // to get GL commands
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
+
 // Text mode color values
 enum{
 	LO = 85,
@@ -659,6 +662,52 @@ void FStartScreen::NetProgress(int count)
 	Render();
 }
 
+//void FStartScreen::Render(bool force)
+//{
+//	static uint64_t minwaittime = 30;
+//
+//	auto nowtime = I_msTime();
+//	// Do not refresh too often. This function gets called a lot more frequently than the screen can update.
+//	if (nowtime - screen->FrameTime > minwaittime || force)
+//	{
+//		screen->FrameTime = nowtime;
+//		screen->BeginFrame();
+//		twod->ClearClipRect();
+//		I_GetEvent();
+//		ValidateTexture();
+//		float displaywidth;
+//		float displayheight;
+//		twod->Begin(screen->GetWidth(), screen->GetHeight());
+//
+//		// At this point the shader for untextured rendering has not been loaded yet, so we got to clear the screen by rendering a texture with black color.
+//		DrawTexture(twod, StartupTexture, 0, 0, DTA_VirtualWidthF, StartupTexture->GetDisplayWidth(), DTA_VirtualHeightF, StartupTexture->GetDisplayHeight(), DTA_KeepRatio, true, DTA_Color, PalEntry(255,0,0,0), TAG_END);
+//
+//		if (HeaderTexture)
+//		{
+//			displaywidth = HeaderTexture->GetDisplayWidth();
+//			displayheight = HeaderTexture->GetDisplayHeight() + StartupTexture->GetDisplayHeight();
+//			DrawTexture(twod, HeaderTexture, 0, 0, DTA_VirtualWidthF, displaywidth, DTA_VirtualHeightF, displayheight, TAG_END);
+//			DrawTexture(twod, StartupTexture, 0, 32, DTA_VirtualWidthF, displaywidth, DTA_VirtualHeightF, displayheight, TAG_END);
+//			if (NetMaxPos >= 0) DrawTexture(twod, NetTexture, 0, displayheight - 16, DTA_VirtualWidthF, displaywidth, DTA_VirtualHeightF, displayheight, TAG_END);
+//		}
+//		else
+//		{
+//			displaywidth = StartupTexture->GetDisplayWidth();
+//			displayheight = StartupTexture->GetDisplayHeight();
+//			DrawTexture(twod, StartupTexture, 0, 0, DTA_VirtualWidthF, displaywidth, DTA_VirtualHeightF, displayheight, TAG_END);
+//		}
+//
+//		twod->End();
+//		screen->Update();
+//		twod->OnFrameDone();
+//	}
+//	auto newtime = I_msTime();
+//	if ((newtime - nowtime) * 2 > minwaittime) // slow down drawing the start screen if we're on a slow GPU!
+//		minwaittime = (newtime - nowtime) * 2;
+//}
+
+#include "i_mainwindow.h"
+extern void* g_Legacy_hDC_Bridge;
 void FStartScreen::Render(bool force)
 {
 	static uint64_t minwaittime = 30;
@@ -668,16 +717,19 @@ void FStartScreen::Render(bool force)
 	if (nowtime - screen->FrameTime > minwaittime || force)
 	{
 		screen->FrameTime = nowtime;
+
+		// 1. Trigger engine baseline setup sequences
 		screen->BeginFrame();
 		twod->ClearClipRect();
 		I_GetEvent();
 		ValidateTexture();
+
 		float displaywidth;
 		float displayheight;
 		twod->Begin(screen->GetWidth(), screen->GetHeight());
 
 		// At this point the shader for untextured rendering has not been loaded yet, so we got to clear the screen by rendering a texture with black color.
-		DrawTexture(twod, StartupTexture, 0, 0, DTA_VirtualWidthF, StartupTexture->GetDisplayWidth(), DTA_VirtualHeightF, StartupTexture->GetDisplayHeight(), DTA_KeepRatio, true, DTA_Color, PalEntry(255,0,0,0), TAG_END);
+		DrawTexture(twod, StartupTexture, 0, 0, DTA_VirtualWidthF, StartupTexture->GetDisplayWidth(), DTA_VirtualHeightF, StartupTexture->GetDisplayHeight(), DTA_KeepRatio, true, DTA_Color, PalEntry(255, 0, 0, 0), TAG_END);
 
 		if (HeaderTexture)
 		{
@@ -695,11 +747,78 @@ void FStartScreen::Render(bool force)
 		}
 
 		twod->End();
-		screen->Update();
-		twod->OnFrameDone();
+
+		// ---=== [Darkcrafter07] PATHWAY A: LEGACY FIXED START PRESENTATION FLUSH ===---
+		if (gl.legacyMode || gl.gl1path)
+		{
+			// Hard-reset GPU pipeline back to the true default window screen backbuffer context
+			typedef void (APIENTRY* PFNGLBINDFRAMEBUFFERPROC) (unsigned int target, unsigned int framebuffer);
+			static PFNGLBINDFRAMEBUFFERPROC p_glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)wglGetProcAddress("glBindFramebuffer");
+			if (p_glBindFramebuffer != nullptr)
+			{
+				p_glBindFramebuffer(0x8D40, 0); // GL_FRAMEBUFFER
+			}
+
+			// Clear attribute buffers to prevent trailing shader drift locks
+			typedef void (APIENTRY* PFNGLBINDVERTEXARRAYPROC) (unsigned int array);
+			static PFNGLBINDVERTEXARRAYPROC p_glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)wglGetProcAddress("glBindVertexArray");
+			if (p_glBindVertexArray != nullptr)
+			{
+				p_glBindVertexArray(0);
+			}
+
+			glUseProgram(0);
+
+			// Force configuration of 2D orthogonal matrix maps straight over the physical backbuffer
+			glViewport(0, 0, screen->GetWidth(), screen->GetHeight());
+			glMatrixMode(GL_PROJECTION); glLoadIdentity();
+			glOrtho(0.0, (double)screen->GetWidth(), (double)screen->GetHeight(), 0.0, -1.0, 1.0);
+			glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+
+			glDisable(GL_DEPTH_TEST);
+			glDisable(GL_BLEND);
+			glDepthMask(GL_FALSE);
+
+			// Force render ZDoom's internal compiled 2D textures stream using raw legacy calls
+			glEnable(GL_TEXTURE_2D);
+			glTexEnvf(0x2300, 0x3001, 0x2100); // GL_TEXTURE_ENV_MODE = GL_MODULATE
+
+			// Trigger the original 2D drawer commands buffer commit to hardware context!
+			twod->OnFrameDone();
+
+			// Direct native Win32 hardware page flip via pre-allocated context anchors
+			if (g_Legacy_hDC_Bridge != nullptr)
+			{
+				glFlush(); glFinish();
+				::SwapBuffers((HDC)g_Legacy_hDC_Bridge);
+			}
+			else
+			{
+				// [Darkcrafter07] - FIXED NESTED SYNTAX SCOPE DEFINITION!
+				// Correctly routed via the engine global static 'mainwindow' instance registry token.
+				HWND hWndMain = mainwindow.GetHandle();
+				if (hWndMain != NULL)
+				{
+					HDC hDCMain = GetDC(hWndMain);
+					if (hDCMain != NULL)
+					{
+						glFlush(); glFinish();
+						::SwapBuffers(hDCMain);
+						ReleaseDC(hWndMain, hDCMain);
+					}
+				}
+			}
+		}
+		// ---=== PATHWAY B: ORIGINAL MODERN SHADER UPDATE LOOP ===---
+		else
+		{
+			screen->Update();
+			twod->OnFrameDone();
+		}
 	}
+
 	auto newtime = I_msTime();
-	if ((newtime - nowtime) * 2 > minwaittime) // slow down drawing the start screen if we're on a slow GPU!
+	if ((newtime - nowtime) * 2 > minwaittime)
 		minwaittime = (newtime - nowtime) * 2;
 }
 

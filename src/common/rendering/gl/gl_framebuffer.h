@@ -1,3 +1,4 @@
+// gl_framebuffer.h - LZDoom 4.14.3 NEW
 #ifndef __GL_FRAMEBUFFER
 #define __GL_FRAMEBUFFER
 

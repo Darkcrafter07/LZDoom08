@@ -1,3 +1,4 @@
+// gl_hwtexture.h
 #pragma once
 class FBitmap;
 class FTexture;
@@ -28,10 +29,30 @@ public:
 
 	static unsigned int lastbound[MAX_TEXTURES];
 
+	//static int GetTexDimension(int value)
+	//{
+	//	if (value > gl.max_texturesize) return gl.max_texturesize;
+	//	return value;
+	//}
+
+	// Power-of-Two loops constraints to bypass non-power-of-two (NPOT) driver halts.
 	static int GetTexDimension(int value)
 	{
 		if (value > gl.max_texturesize) return gl.max_texturesize;
-		return value;
+
+		if (gl.glnpot || gl.gl1path)
+		//if (gl.legacyMode || gl.glnpot || gl.gl1path)
+		{
+			int i = 1;
+			while (i < value) i += i;
+			return i;
+		}
+
+		if (gl.flags & RFL_NPOT_TEXTURE) return value;
+
+		int i = 1;
+		while (i < value) i += i;
+		return i;
 	}
 
 	static void InitGlobalState() { for (int i = 0; i < MAX_TEXTURES; i++) lastbound[i] = 0; }
@@ -64,6 +85,8 @@ public:
 
 	unsigned int Bind(int texunit, bool needmipmap);
 	bool BindOrCreate(FTexture* tex, int texunit, int clampmode, int translation, int flags);
+	bool BindOrCreateGL1x(FTexture* tex, int texunit, int clampmode, int translation, int flags);
+	bool BindOrCreateGL3x(FTexture* tex, int texunit, int clampmode, int translation, int flags);
 
 	void AllocateBuffer(int w, int h, int texelsize);
 	uint8_t* MapBuffer();

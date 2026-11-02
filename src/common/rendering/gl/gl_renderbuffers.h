@@ -1,4 +1,5 @@
 
+// gl_renderbuffers.h
 #pragma once
 
 #include "hwrenderer/postprocessing/hw_postprocess.h"
@@ -11,6 +12,8 @@ class FGLRenderBuffers;
 class PPGLTexture
 {
 public:
+	GLuint GetTexHandleLegacy() const { return handle; } // GL1x/GL2x direct hardware handle query bypass
+
 	void Bind(int index, int filter = GL_NEAREST, int wrap = GL_CLAMP_TO_EDGE)
 	{
 		glActiveTexture(GL_TEXTURE0 + index);
@@ -140,14 +143,22 @@ public:
 	int GetSceneWidth() const { return mSceneWidth; }
 	int GetSceneHeight() const { return mSceneHeight; }
 
+	// GL1x/GL2x pipeline index and texture tracking anchors
+	int GetCurrentPipelineTextureIndexLegacy() const { return mCurrentPipelineTexture; }
+	GLuint GetPipelineTexHandleLegacy(int idx) const { return mPipelineTexture[idx].GetTexHandleLegacy(); }
+
 private:
 	void ClearScene();
 	void ClearPipeline();
 	void ClearEyeBuffers();
 	void ClearShadowMap();
 	void CreateScene(int width, int height, int samples, bool needsSceneTextures);
+	void CreateSceneGL1x(int width, int height, int samples, bool needsSceneTextures);
+	void CreateSceneGL3x(int width, int height, int samples, bool needsSceneTextures);
 	void CreatePipeline(int width, int height);
 	void CreateEyeBuffers(int eye);
+	void CreateEyeBuffersGL1x(int eye);
+	void CreateEyeBuffersGL3x(int eye);
 	void CreateShadowMap();
 
 	PPGLTexture Create2DTexture(const char *name, GLuint format, int width, int height, const void *data = nullptr);
@@ -207,6 +218,7 @@ private:
 	static bool FailedCreate;
 
 	friend class GLPPRenderState;
+	friend class FGLRenderer; // GL1x/GL2x force-allow presentation queries
 };
 
 }

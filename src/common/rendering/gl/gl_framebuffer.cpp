@@ -62,6 +62,11 @@
 #include "flatvertices.h"
 #include "hw_cvars.h"
 
+#include "d_player.h"      // players profiles
+#include "doomstat.h"      // indices arrays matrix
+#include "g_levellocals.h" // for "&level"
+#include "hwrenderer/scene/hw_drawinfo.h"
+
 EXTERN_CVAR (Bool, vid_vsync)
 EXTERN_CVAR(Int, gl_tonemap)
 EXTERN_CVAR(Bool, cl_capfps)
@@ -122,7 +127,7 @@ OpenGLFrameBuffer::~OpenGLFrameBuffer()
 
 void OpenGLFrameBuffer::InitializeState()
 {
-	static bool first=true;
+	static bool first = true;
 
 	if (first)
 	{
@@ -134,24 +139,38 @@ void OpenGLFrameBuffer::InitializeState()
 
 	gl_LoadExtensions();
 
-	mPipelineNbr = clamp(*gl_pipeline_depth, 1, HW_MAX_PIPELINE_BUFFERS);
+	mPipelineNbr = clamp(*gl_pipeline_depth, 1, HW_MAX_PIPELINE_BUFFERS); // здесь
 	mPipelineType = gl_pipeline_depth > 0;
 
-	// Move some state to the framebuffer object for easier access.
-	hwcaps = gl.flags;
-	glslversion = gl.glslversion;
-	uniformblockalignment = gl.uniformblockalignment;
-	maxuniformblock = gl.maxuniformblock;
-	vendorstring = gl.vendorstring;
+	// ---=== [Darkcrafter07] STAGE 1: SYSTEM CAPABILITIES SHIELD ===---
+	// Safely moves state flags to the framebuffer object.
+	// If running under gl.legacyMode, we zero out dynamic blocks offsets alignments
+	// to prevent static_cast<GLDataBuffer*> BindBase() routines from locking the driver!
+	if (!gl.legacyMode)
+	{
+		hwcaps = gl.flags;
+		glslversion = gl.glslversion;
+		uniformblockalignment = gl.uniformblockalignment;
+		maxuniformblock = gl.maxuniformblock;
+		vendorstring = gl.vendorstring;
+	}
+	else
+	{
+		hwcaps = 0;
+		glslversion = 0;
+		uniformblockalignment = 0;
+		maxuniformblock = 0;
+		vendorstring = nullptr;
+	}
 
 	if (first)
 	{
-		first=false;
+		first = false;
 		gl_PrintStartupLog();
 	}
 
+	// ---=== STAGE 2: FIXED HARDWARE RASTERIZATION STATES REGISTER ===---
 	glDepthFunc(GL_LESS);
-
 	glEnable(GL_DITHER);
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_POLYGON_OFFSET_FILL);
@@ -159,6 +178,12 @@ void OpenGLFrameBuffer::InitializeState()
 	glEnable(GL_BLEND);
 	glEnable(GL_DEPTH_CLAMP);
 	glDisable(GL_DEPTH_TEST);
+
+	if (gl.legacyMode)
+	{
+		glEnable(GL_TEXTURE_2D);
+	}
+
 	glDisable(GL_LINE_SMOOTH);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -166,17 +191,52 @@ void OpenGLFrameBuffer::InitializeState()
 	glClearDepth(1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	// Re-calculates and maps factory screen boundaries matrices into 4.14 structures
 	SetViewportRects(nullptr);
 
-	mVertexData = new FFlatVertexBuffer(GetWidth(), GetHeight(), screen->mPipelineNbr);
+	// ---=== STAGE 3: ALLOCATING STORAGE AND CONTEXTS CONTAINERS ===---
+	mVertexData = new FFlatVertexBuffer(GetWidth(), GetHeight()); // здесь
 	mSkyData = new FSkyVertexBuffer;
 	mViewpoints = new HWViewpointBuffer(screen->mPipelineNbr);
 	mLights = new FLightBuffer(screen->mPipelineNbr);
 	mBones = new BoneBuffer(screen->mPipelineNbr);
+
 	GLRenderer = new FGLRenderer(this);
 	GLRenderer->Initialize(GetWidth(), GetHeight());
-	static_cast<GLDataBuffer*>(mLights->GetBuffer())->BindBase();
-	static_cast<GLDataBuffer*>(mBones->GetBuffer())->BindBase();
+
+	// ---=== [Darkcrafter07] STAGE 4: SHADERLESS PIPELINE ALIGNMENT SYNCHRONIZER ===---
+	if (!gl.legacyMode)
+	{
+		// Shaders-bound UBO descriptors are only bound if Core Profile is active
+		static_cast<GLDataBuffer*>(mLights->GetBuffer())->BindBase();
+		static_cast<GLDataBuffer*>(mBones->GetBuffer())->BindBase();
+	}
+	else
+	{
+		// [Darkcrafter07] - EMBEDDED 3.88b Begin2D/SetOutputViewport RECONSTRUCTION!
+		// Force calibrate and allocate pipeline texture attachments under legacy modes
+		// strictly AFTER the GLRenderer pointer instance becomes valid in RAM!
+		if (GLRenderer != nullptr && GLRenderer->mBuffers != nullptr)
+		{
+			GLRenderer->mBuffers->Setup(GetWidth(), GetHeight(), GetWidth(), GetHeight());
+		}
+
+		// Force direct hardware framebuffers context redirection to pipeline unit 0
+		typedef void (APIENTRY* PFNGLBINDFRAMEBUFFERPROC) (unsigned int target, unsigned int framebuffer);
+		static PFNGLBINDFRAMEBUFFERPROC p_glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)wglGetProcAddress("glBindFramebuffer");
+		if (p_glBindFramebuffer != nullptr)
+		{
+			p_glBindFramebuffer(0x8D40, 0); // Hard-reset back to screen backbuffer context
+		}
+
+		// Configure standard 2D fixed-function initial projection viewport bounds
+		glViewport(0, 0, GetWidth(), GetHeight());
+		glMatrixMode(GL_PROJECTION);
+		glLoadIdentity();
+		glOrtho(0, GetWidth(), GetHeight(), 0, -1.0f, 1.0f);
+		glMatrixMode(GL_MODELVIEW);
+		glLoadIdentity();
+	}
 
 	mDebug = std::make_unique<FGLDebug>();
 	mDebug->Update();
@@ -221,21 +281,60 @@ void OpenGLFrameBuffer::CopyScreenToBuffer(int width, int height, uint8_t* scr)
 //
 //===========================================================================
 
-void OpenGLFrameBuffer::RenderTextureView(FCanvasTexture* tex, std::function<void(IntRect &)> renderFunc)
+void OpenGLFrameBuffer::RenderTextureView(FCanvasTexture* tex, std::function<void(IntRect&)> renderFunc)
 {
-	GLRenderer->StartOffscreen();
-	GLRenderer->BindToFrameBuffer(tex);
+	if (tex == nullptr) return;
 
-	IntRect bounds;
-	bounds.left = bounds.top = 0;
-	bounds.width = FHardwareTexture::GetTexDimension(tex->GetWidth());
-	bounds.height = FHardwareTexture::GetTexDimension(tex->GetHeight());
+	if (gl.legacyMode)
+	{
+		glUseProgram(0);
 
-	renderFunc(bounds);
-	GLRenderer->EndOffscreen();
+		if ((uintptr_t)&level > 0x10000)
+		{
+			// Leverage GZ4x static factory pipeline manager
+			// straight from hw_entrypoint.cpp! Pushes level context and active r_viewpoint variables cleanly.
+			auto di = HWDrawInfo::StartDrawInfo(&level, nullptr, r_viewpoint, nullptr);
 
-	tex->SetUpdated(true);
-	static_cast<OpenGLFrameBuffer*>(screen)->camtexcount++;
+			if (di != nullptr)
+			{
+				// Extract target camera actor directly from the verified players statics array
+				AActor* gl1xCameraActor = players[consoleplayer].camera;
+				if (gl1xCameraActor == nullptr)
+				{
+					gl1xCameraActor = players[consoleplayer].mo;
+				}
+
+				// Pull active field of view degrees from our verified r_viewpoint overlay tracker
+				float currentFovDegrees = (float)r_viewpoint.FieldOfView.Degrees();
+
+				// Route to glCopyTexSubImage2D hardware capture pass
+				di->RenderTextureViewGL1x(tex, gl1xCameraActor, currentFovDegrees);
+
+				// Clean up the allocated stack frame descriptors page natively via the engine destructor
+				di->EndDrawInfo();
+			}
+		}
+
+		this->camtexcount++; // Sync the frame textures counter register for Swap() optimization
+		return; // Legacy fixed-function capture complete, abort core shader paths.
+	}
+
+	if (GLRenderer != nullptr)
+	{
+		GLRenderer->StartOffscreen();
+		GLRenderer->BindToFrameBuffer(tex);
+
+		IntRect bounds;
+		bounds.left = bounds.top = 0;
+		bounds.width = FHardwareTexture::GetTexDimension(tex->GetWidth());
+		bounds.height = FHardwareTexture::GetTexDimension(tex->GetHeight());
+
+		renderFunc(bounds);
+		GLRenderer->EndOffscreen();
+
+		tex->SetUpdated(true);
+		static_cast<OpenGLFrameBuffer*>(screen)->camtexcount++;
+	}
 }
 
 //===========================================================================
@@ -257,11 +356,45 @@ const char* OpenGLFrameBuffer::DeviceName() const
 
 CVAR(Bool, gl_finishbeforeswap, false, CVAR_ARCHIVE|CVAR_GLOBALCONFIG);
 
+//==========================================================================
+//
+// Finishes the active graphics queue rendering operations and swaps frame buffers.
+// Completely bypasses modern multi-buffered pipeline wait syncs inside gl.legacyMode.
+// Declared as a native member of class OpenGLFrameBuffer (gl_framebuffer.cpp).
+//
+//==========================================================================
 void OpenGLFrameBuffer::Swap()
 {
 	bool swapbefore = gl_finishbeforeswap && camtexcount == 0;
 	Finish.Reset();
 	Finish.Clock();
+
+	// ---=== [Darkcrafter07] PATHWAY A: LEGACY FIXED-PIPELINE SWAP OVERRIDE ===---
+	if (gl.legacyMode)
+	{
+		// 1. Force hardware pipeline queue completion to ensure pure OpenGL 1.1 layout alignment
+		glFlush();
+		glFinish();
+
+		// 2. Bound framework frame rates frame limiters ticks
+		FPSLimit();
+
+		// 3. Execute pure platform-specific double buffer flip straight down to gl_sysfb.cpp!
+		SwapBuffers();
+
+		// Final hardware wipe queue lock
+		glFinish();
+
+		// 4. CLEANUP RETRO REGISTERS AFTER PAGE FLIP
+		Finish.Unclock();
+		camtexcount = 0;
+		FHardwareTexture::UnbindAll();
+		gl_RenderState.ClearLastMaterial();
+		mDebug->Update();
+		return; // Page swapped natively on WinXP, completely skip pipeline sync mutations!
+	}
+
+	// ---=== PATHWAY B: ORIGINAL MODERN SHADER PATH (GL3x+) ===---
 	if (gl_pipeline_depth < 1)
 	{
 		if (swapbefore) glFinish();
@@ -279,6 +412,7 @@ void OpenGLFrameBuffer::Swap()
 		mVertexData->NextPipelineBuffer();
 		mVertexData->WaitSync();
 	}
+
 	Finish.Unclock();
 	camtexcount = 0;
 	FHardwareTexture::UnbindAll();
@@ -386,13 +520,56 @@ void OpenGLFrameBuffer::InitLightmap(int LMTextureSize, int LMTextureCount, TArr
 	}
 }
 
-void OpenGLFrameBuffer::SetViewportRects(IntRect *bounds)
+//void OpenGLFrameBuffer::SetViewportRects(IntRect *bounds)
+//{
+//	Super::SetViewportRects(bounds);
+//	if (!bounds)
+//	{
+//		auto vrmode = VRMode::GetVRMode(true);
+//		vrmode->AdjustViewport(this);
+//	}
+//}
+
+void OpenGLFrameBuffer::SetViewportRects(IntRect* bounds)
 {
+	// 1. Invoke the default baseline layout matrix structures calculation
 	Super::SetViewportRects(bounds);
+
+	// ==============================================================================
+	// [Darkcrafter07] - THE ULTIMATE LEGACY VIEWPORT ANCHOR LOCK!
+	// ==============================================================================
+	// CRITICAL FIX: If running under gl.legacyMode / gl.gl1path, custom viewport rescaling 
+	// (gl_scale_viewport) distorts coordinates, causing fixed-function primitives 
+	// to completely drift out of the frustum boundaries, resulting in a black screen!
+	// We force-restore un-scaled standard proportions natively on the spot!
+	if (gl.legacyMode || gl.gl1path)
+	{
+		int screenWidth = GetWidth();
+		int screenHeight = GetHeight();
+
+		// Enforce clean 1:1 pixel boundaries matching our exact fixed glOrtho requirements
+		mScreenViewport.left = 0;
+		mScreenViewport.top = 0;
+		mScreenViewport.width = screenWidth;
+		mScreenViewport.height = screenHeight;
+
+		// The 3D scene viewport under legacy pipelines aligns straight with screen pixels bounds
+		mSceneViewport = mScreenViewport;
+
+		mOutputLetterbox = mScreenViewport;
+		mGameScreenWidth = screenWidth;
+		mGameScreenHeight = screenHeight;
+		return; // Legacy protection applied successfully, bypass any fuzzy VR/Scale adjustments!
+	}
+
+	// ---=== ORIGINAL MODERN PROFILE DISPATCHER PATH (GL3x+ / Vulkan) ===---
 	if (!bounds)
 	{
 		auto vrmode = VRMode::GetVRMode(true);
-		vrmode->AdjustViewport(this);
+		if (vrmode != nullptr)
+		{
+			vrmode->AdjustViewport(this);
+		}
 	}
 }
 
@@ -427,6 +604,7 @@ void OpenGLFrameBuffer::NextEye(int eyecount)
 	GLRenderer->mBuffers->NextEye(eyecount);
 }
 
+// If used wrong, draws only menues, player sprites and HUD but not the 3D world
 void OpenGLFrameBuffer::SetSceneRenderTarget(bool useSSAO)
 {
 	GLRenderer->mBuffers->BindSceneFB(useSSAO);
@@ -478,7 +656,7 @@ void OpenGLFrameBuffer::SetSaveBuffers(bool yes)
 
 //===========================================================================
 //
-// 
+// CAUSES BLACK SCREEN IF USED INCORRECTLY
 //
 //===========================================================================
 

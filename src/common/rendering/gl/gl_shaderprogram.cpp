@@ -1,4 +1,4 @@
-/*
+/*  gl_shaderprogram.cpp
 **  Postprocessing framework
 **  Copyright (c) 2016-2020 Magnus Norddahl
 **

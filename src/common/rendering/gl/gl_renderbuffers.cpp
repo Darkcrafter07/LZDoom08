@@ -188,6 +188,60 @@ void FGLRenderBuffers::Setup(int width, int height, int sceneWidth, int sceneHei
 
 void FGLRenderBuffers::CreateScene(int width, int height, int samples, bool needsSceneTextures)
 {
+	if (gl.legacyMode)
+	{
+		CreateSceneGL1x(width, height, samples, needsSceneTextures);
+	}
+	else
+	{
+		CreateSceneGL3x(width, height, samples, needsSceneTextures);
+	}
+}
+
+void FGLRenderBuffers::CreateSceneGL1x(int width, int height, int samples, bool needsSceneTextures)
+{
+	ClearScene();
+
+	if (samples > 1)
+	{
+		if (needsSceneTextures)
+		{
+			mSceneMultisampleTex = Create2DMultisampleTexture("SceneMultisample", GL_RGBA8, width, height, samples, false);
+			mSceneDepthStencilTex = Create2DMultisampleTexture("SceneDepthStencil", GL_DEPTH24_STENCIL8, width, height, samples, false);
+			mSceneFogTex = Create2DMultisampleTexture("SceneFog", GL_RGBA8, width, height, samples, false);
+			mSceneNormalTex = Create2DMultisampleTexture("SceneNormal", GL_RGB10_A2, width, height, samples, false);
+			mSceneFB = CreateFrameBuffer("SceneFB", mSceneMultisampleTex, {}, {}, mSceneDepthStencilTex, true);
+			mSceneDataFB = CreateFrameBuffer("SceneGBufferFB", mSceneMultisampleTex, mSceneFogTex, mSceneNormalTex, mSceneDepthStencilTex, true);
+		}
+		else
+		{
+			mSceneMultisampleBuf = CreateRenderBuffer("SceneMultisample", GL_RGBA8, width, height, samples);
+			mSceneDepthStencilBuf = CreateRenderBuffer("SceneDepthStencil", GL_DEPTH24_STENCIL8, width, height, samples);
+			mSceneFB = CreateFrameBuffer("SceneFB", mSceneMultisampleBuf, mSceneDepthStencilBuf);
+			mSceneDataFB = CreateFrameBuffer("SceneGBufferFB", mSceneMultisampleBuf, mSceneDepthStencilBuf);
+		}
+	}
+	else
+	{
+		if (needsSceneTextures)
+		{
+			mSceneDepthStencilTex = Create2DTexture("SceneDepthStencil", GL_DEPTH24_STENCIL8, width, height);
+			mSceneFogTex = Create2DTexture("SceneFog", GL_RGBA8, width, height);
+			mSceneNormalTex = Create2DTexture("SceneNormal", GL_RGB10_A2, width, height);
+			mSceneFB = CreateFrameBuffer("SceneFB", mPipelineTexture[0], {}, {}, mSceneDepthStencilTex, false);
+			mSceneDataFB = CreateFrameBuffer("SceneGBufferFB", mPipelineTexture[0], mSceneFogTex, mSceneNormalTex, mSceneDepthStencilTex, false);
+		}
+		else
+		{
+			mSceneDepthStencilBuf = CreateRenderBuffer("SceneDepthStencil", GL_DEPTH24_STENCIL8, width, height);
+			mSceneFB = CreateFrameBuffer("SceneFB", mPipelineTexture[0], mSceneDepthStencilBuf);
+			mSceneDataFB = CreateFrameBuffer("SceneGBufferFB", mPipelineTexture[0], mSceneDepthStencilBuf);
+		}
+	}
+}
+
+void FGLRenderBuffers::CreateSceneGL3x(int width, int height, int samples, bool needsSceneTextures)
+{
 	ClearScene();
 
 	if (samples > 1)
@@ -239,10 +293,28 @@ void FGLRenderBuffers::CreatePipeline(int width, int height)
 	ClearPipeline();
 	ClearEyeBuffers();
 
-	mPipelineDepthStencilBuf = CreateRenderBuffer("PipelineDepthStencil", GL_DEPTH24_STENCIL8, width, height);
+	// [Darkcrafter07] - THE ATOMIC DEPTH-STENCIL PIPELINE TARGET SHIELD!
+	// We intercept the formatting lookup right here before it triggers 
+	// CreateRenderBuffer to guarantee that legacy cards receive safe formats layouts!
+	unsigned int targetPipelineDepthFormat = GL_DEPTH24_STENCIL8;
+	if (gl.legacyMode || gl.gl1path)
+	{
+		targetPipelineDepthFormat = GL_DEPTH_COMPONENT24; // Fully compliant with OpenGL 1.5/2.0 context
+	}
+
+	// Instantiate our unified pipeline depth buffer container safely
+	mPipelineDepthStencilBuf = CreateRenderBuffer("PipelineDepthStencil", targetPipelineDepthFormat, width, height);
+
+	int targetPipelineFormat = GL_RGBA16F;
+	if (gl.legacyMode || gl.gl1path)
+	{
+		targetPipelineFormat = GL_RGBA8; // Force fallback from HDR formats to 8-bit truecolor
+	}
+
 	for (int i = 0; i < NumPipelineTextures; i++)
 	{
-		mPipelineTexture[i] = Create2DTexture("PipelineTexture", GL_RGBA16F, width, height);
+		// Stream allocate textures frames and map them over the validated FBO targets list
+		mPipelineTexture[i] = Create2DTexture("PipelineTexture", targetPipelineFormat, width, height);
 		mPipelineFB[i] = CreateFrameBuffer("PipelineFB", mPipelineTexture[i], mPipelineDepthStencilBuf);
 	}
 }
@@ -254,6 +326,41 @@ void FGLRenderBuffers::CreatePipeline(int width, int height)
 //==========================================================================
 
 void FGLRenderBuffers::CreateEyeBuffers(int eye)
+{
+	if (gl.legacyMode)
+	{
+		CreateEyeBuffersGL1x(eye);
+	}
+	else
+	{
+		CreateEyeBuffersGL3x(eye);
+	}
+}
+void FGLRenderBuffers::CreateEyeBuffersGL1x(int eye)
+{
+	if (mEyeFBs.Size() > unsigned(eye))
+		return;
+
+	GLint activeTex, textureBinding, frameBufferBinding;
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTex);
+	glActiveTexture(GL_TEXTURE0);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &textureBinding);
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &frameBufferBinding);
+
+	while (mEyeFBs.Size() <= unsigned(eye))
+	{
+		PPGLTexture texture = Create2DTexture("EyeTexture", GL_RGBA8, mWidth, mHeight);
+		mEyeTextures.Push(texture);
+		mEyeFBs.Push(CreateFrameBuffer("EyeFB", texture));
+	}
+
+	glBindTexture(GL_TEXTURE_2D, textureBinding);
+	glActiveTexture(activeTex);
+	glBindFramebuffer(GL_FRAMEBUFFER, frameBufferBinding);
+}
+
+
+void FGLRenderBuffers::CreateEyeBuffersGL3x(int eye)
 {
 	if (mEyeFBs.Size() > unsigned(eye))
 		return;
@@ -282,11 +389,28 @@ void FGLRenderBuffers::CreateEyeBuffers(int eye)
 //
 //==========================================================================
 
-PPGLTexture FGLRenderBuffers::Create2DTexture(const char *name, GLuint format, int width, int height, const void *data)
+PPGLTexture FGLRenderBuffers::Create2DTexture(const char* name, GLuint format, int width, int height, const void* data)
 {
 	PPGLTexture tex;
 	tex.Width = width;
 	tex.Height = height;
+
+	// [Darkcrafter07] - THE MONOLITHIC LEGACY FORMAT CONVERSION SHIELD
+	// If running under legacy/Compatibility modes, modern float/packed structures 
+	// will completely break the texture allocation inside old WinXP drivers!
+	// We dynamically convert formats to baseline stable counterparts before gen loops.
+	if (gl.legacyMode || gl.gl1path)
+	{
+		if (format == GL_RGBA16F || format == GL_RGBA32F || format == GL_RGBA16)
+		{
+			format = GL_RGBA8; // Force fallback to standard hardware 8-bit truecolor
+		}
+		else if (format == GL_DEPTH24_STENCIL8)
+		{
+			format = GL_DEPTH_COMPONENT24; // Force fallback to pure fixed-hardware 24-bit depth channel
+		}
+	}
+
 	glGenTextures(1, &tex.handle);
 	glBindTexture(GL_TEXTURE_2D, tex.handle);
 	FGLDebug::LabelObject(GL_TEXTURE, tex.handle, name);
@@ -378,27 +502,37 @@ PPGLFrameBuffer FGLRenderBuffers::CreateFrameBuffer(const char *name, PPGLTextur
 	return fb;
 }
 
-PPGLFrameBuffer FGLRenderBuffers::CreateFrameBuffer(const char *name, PPGLTexture colorbuffer, PPGLRenderBuffer depthstencil)
+PPGLFrameBuffer FGLRenderBuffers::CreateFrameBuffer(const char* name, PPGLTexture colorbuffer, PPGLRenderBuffer depthstencil)
 {
 	PPGLFrameBuffer fb;
 	glGenFramebuffers(1, &fb.handle);
 	glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
 	FGLDebug::LabelObject(GL_FRAMEBUFFER, fb.handle, name);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorbuffer.handle, 0);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthstencil.handle);
+
+	// [Darkcrafter07] - THE ATOMIC FBO ATTACHMENT ROUTER
+	// Under GL1/GL2, GL_DEPTH_STENCIL_ATTACHMENT is non-existent and fails completeness validation!
+	// We route the buffer natively straight into the classic GL_DEPTH_ATTACHMENT slot!
+	GLenum depthAttachmentPoint = (gl.legacyMode || gl.gl1path) ? GL_DEPTH_ATTACHMENT : GL_DEPTH_STENCIL_ATTACHMENT;
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, depthAttachmentPoint, GL_RENDERBUFFER, depthstencil.handle);
+
 	if (CheckFrameBufferCompleteness())
 		ClearFrameBuffer(true, true);
 	return fb;
 }
 
-PPGLFrameBuffer FGLRenderBuffers::CreateFrameBuffer(const char *name, PPGLRenderBuffer colorbuffer, PPGLRenderBuffer depthstencil)
+PPGLFrameBuffer FGLRenderBuffers::CreateFrameBuffer(const char* name, PPGLRenderBuffer colorbuffer, PPGLRenderBuffer depthstencil)
 {
 	PPGLFrameBuffer fb;
 	glGenFramebuffers(1, &fb.handle);
 	glBindFramebuffer(GL_FRAMEBUFFER, fb.handle);
 	FGLDebug::LabelObject(GL_FRAMEBUFFER, fb.handle, name);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorbuffer.handle);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthstencil.handle);
+
+	// [Darkcrafter07] - Dual-buffer attachment layout conversion
+	GLenum depthAttachmentPoint = (gl.legacyMode || gl.gl1path) ? GL_DEPTH_ATTACHMENT : GL_DEPTH_STENCIL_ATTACHMENT;
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, depthAttachmentPoint, GL_RENDERBUFFER, depthstencil.handle);
+
 	if (CheckFrameBufferCompleteness())
 		ClearFrameBuffer(true, true);
 	return fb;

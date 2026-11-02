@@ -32,6 +32,7 @@
 #include "flatvertices.h"
 #include "gl_shader.h"
 #include "gl_renderer.h"
+#include "gl_renderstate.h"
 #include "hw_lightbuffer.h"
 #include "hw_bonebuffer.h"
 #include "gl_renderbuffers.h"
@@ -91,6 +92,33 @@ void FGLRenderState::Reset()
 bool FGLRenderState::ApplyShader()
 {
 	static const float nulvec[] = { 0.f, 0.f, 0.f, 0.f };
+
+	if (gl.legacyMode)
+	{
+		// GL1x/GL2x - bypass modern GLSL uniforms binding matrix down the pipe.
+		// Upload baseline fixed pipeline states directly into hardware registries.
+		if (mFogEnabled)
+		{
+			glEnable(GL_FOG);
+			// Process clean 2D overlay fog states
+			if (mFogEnabled == 2) glFogi(GL_FOG_MODE, GL_EXP);
+			else glFogi(GL_FOG_MODE, GL_LINEAR);
+		}
+		else
+		{
+			glDisable(GL_FOG);
+		}
+
+		if (mTextureEnabled) glEnable(GL_TEXTURE_2D);
+		else glDisable(GL_TEXTURE_2D);
+
+		// Synchronize blend functions for UI text/boxes overlays natively
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		return true; // Safe exit checkpoint completely guarantees NO nullptr crashes!
+	}
+
+	// ---=== ORIGINAL MODERN SHADER PROFILE PATH ===---
 	if (mSpecialEffect > EFF_NONE)
 	{
 		activeShader = GLRenderer->mShaderManager->BindEffect(mSpecialEffect, mPassType);
@@ -122,7 +150,7 @@ bool FGLRenderState::ApplyShader()
 	glVertexAttrib4fv(VATTR_COLOR, &mStreamData.uVertexColor.X);
 	glVertexAttrib4fv(VATTR_NORMAL, &mStreamData.uVertexNormal.X);
 
-	activeShader->muDesaturation.Set(mStreamData.uDesaturationFactor);
+	activeShader->muDesaturation.Set(mStreamData.uDesaturationFactor); // Exception thrown at 0x005F9042 in lzdoom.exe: 0xC0000005: Access violation reading location 0x00000010.
 	activeShader->muFogEnabled.Set(fogset);
 
 	activeShader->muTextureMode.Set(GetTextureModeAndFlags(mTempTM));
@@ -300,6 +328,13 @@ void FGLRenderState::ApplyBuffers()
 
 void FGLRenderState::Apply()
 {
+	if (gl.legacyMode)
+	{
+		ApplyGL1x(nullptr);
+		return;
+	}
+
+	// Modern shader path
 	ApplyState();
 	ApplyBuffers();
 	ApplyShader();
@@ -341,7 +376,7 @@ void FGLRenderState::ApplyMaterial(FMaterial *mat, int clampmode, int translatio
 	MaterialLayerInfo* layer;
 	auto base = static_cast<FHardwareTexture*>(mat->GetLayer(0, translation, &layer));
 
-	if (base->BindOrCreate(tex->GetTexture(), 0, clampmode, translation, layer->scaleFlags))
+	if (base->BindOrCreate(tex->GetTexture(), 0, clampmode, translation, layer->scaleFlags)) // здесь
 	{
 		if (!(layer->scaleFlags & CTF_Indexed))
 		{
@@ -610,3 +645,7 @@ bool FGLRenderState::SetDepthClamp(bool on)
 }
 
 }
+
+
+
+

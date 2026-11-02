@@ -239,9 +239,27 @@ void FGameTexture::CreateDefaultBrightmap()
 			{
 				if (GPalette.GlobalBrightmap.Remap[texbuf[i]] == white)
 				{
-					// Create a brightmap
-					DPrintf(DMSG_NOTIFY, "brightmap created for texture '%s'\n", GetName().GetChars());
+					// 1. Create the hardware raw texture mask asset
 					Brightmap = CreateBrightmapTexture(tex->GetImage());
+
+					// 2. [Darkcrafter07] - Dynamically instantiate a clean game-facing wrapper on the spot.
+					// DEV: Bypass missing FTexture::id and GetID() blocks.
+					if (Brightmap.get() != nullptr)
+					{
+						// Construct a new valid FGameTexture container around the raw mask pointer,
+						// giving it a recognizable system identity name for debugging
+						FString brightmapName = Name + "_BrightGL1xMap";
+						FGameTexture* brightmapGameTex = new FGameTexture(Brightmap.get(), brightmapName.GetChars());
+
+						if (brightmapGameTex != nullptr)
+						{
+							// Link the cross-references. Mask now points to this diffuse asset
+							brightmapGameTex->ParentTexture = this;
+
+							// Optional: could force register the newly baked container into the global TexMan array
+							// if we'd want it to be index-cached but manual pointer passing is enough for GL1x.
+						}
+					}
 					return;
 				}
 			}

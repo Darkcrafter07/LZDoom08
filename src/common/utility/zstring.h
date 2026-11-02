@@ -135,7 +135,7 @@ public:
 	// This is intentionally #ifdef'd. The only code which needs this is parts of the Windows backend that receive Unicode text from the system.
 #ifdef _WIN32
 	explicit FString(const wchar_t *copyStr);
-	FString &operator = (const wchar_t *copyStr);
+	FString &operator = (const wchar_t *copyStr); // line #138
 	std::wstring WideString() const { return ::WideString(Chars); }
 #endif
 
@@ -181,7 +181,7 @@ public:
 
 	FString &operator = (const FString &other);
 	FString &operator = (FString &&other) noexcept;
-	FString &operator = (const char *copyStr);
+	FString &operator = (const char *copyStr); // line #184
 
 	FString operator + (const FString &tail) const;
 	FString operator + (const char *tail) const;

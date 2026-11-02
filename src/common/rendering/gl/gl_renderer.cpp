@@ -56,6 +56,7 @@
 #include "gl_postprocessstate.h"
 #include "gl_buffers.h"
 #include "texturemanager.h"
+#include "hw_skydome.h"
 
 EXTERN_CVAR(Int, screenblocks)
 
@@ -74,9 +75,14 @@ namespace OpenGLRenderer
 //
 //-----------------------------------------------------------------------------
 
-FGLRenderer::FGLRenderer(OpenGLFrameBuffer *fb) 
+FGLRenderer::FGLRenderer(OpenGLFrameBuffer* fb)
 {
 	framebuffer = fb;
+
+	// GL1x/GL2x vars
+	mVBO = nullptr;
+	mSkyVBO = nullptr;
+	mVAOID = 0;
 }
 
 void FGLRenderer::Initialize(int width, int height)
@@ -84,36 +90,120 @@ void FGLRenderer::Initialize(int width, int height)
 	mScreenBuffers = new FGLRenderBuffers();
 	mSaveBuffers = new FGLRenderBuffers();
 	mBuffers = mScreenBuffers;
-	mPresentShader = new FPresentShader();
-	mPresent3dCheckerShader = new FPresent3DCheckerShader();
-	mPresent3dColumnShader = new FPresent3DColumnShader();
-	mPresent3dRowShader = new FPresent3DRowShader();
-	mShadowMapShader = new FShadowMapShader();
 
-	// needed for the core profile, because someone decided it was a good idea to remove the default VAO.
-	glGenVertexArrays(1, &mVAOID);
-	glBindVertexArray(mVAOID);
-	FGLDebug::LabelObject(GL_VERTEX_ARRAY, mVAOID, "FGLRenderer.mVAOID");
+	// Allocate frame shaders strictly for the modern core profile path
+	if (!gl.legacyMode)
+	{
+		mPresentShader = new FPresentShader();
+		mPresent3dCheckerShader = new FPresent3DCheckerShader();
+		mPresent3dColumnShader = new FPresent3DColumnShader();
+		mPresent3dRowShader = new FPresent3DRowShader();
+		mShadowMapShader = new FShadowMapShader();
+
+		glGenVertexArrays(1, &mVAOID);
+		glBindVertexArray(mVAOID);
+		FGLDebug::LabelObject(GL_VERTEX_ARRAY, mVAOID, "FGLRenderer.mVAOID");
+	}
+	else
+	{
+		// Fixed-Function path baseline initialization
+		mPresentShader = nullptr;
+		mPresent3dCheckerShader = nullptr;
+		mPresent3dColumnShader = nullptr;
+		mPresent3dRowShader = nullptr;
+		mShadowMapShader = nullptr;
+		mVAOID = 0;
+	}
 
 	mFBID = 0;
 	mOldFBID = 0;
 
+	// Reallocate dedicated fixed-function GL1x/GL2x polygonal storage meshes
+	if (gl.legacyMode)
+	{
+		mVBO = new FFlatVertexBuffer(width, height);
+		mSkyVBO = new FSkyVertexBuffer();
+
+		// Force register our legacy array mapping buffer onto the active rendering thread context
+		gl_RenderState.SetVertexBuffer(mVBO);
+	}
+
 	mShaderManager = new FShaderManager;
 	mSamplerManager = new FSamplerManager;
+
+	GetSpecialGL1xTextures();
 }
 
-FGLRenderer::~FGLRenderer() 
+//void FGLRenderer::Initialize(int width, int height)
+//{
+//	mScreenBuffers = new FGLRenderBuffers();
+//	mSaveBuffers = new FGLRenderBuffers();
+//	mBuffers = mScreenBuffers;
+//
+//	// [Darkcrafter07] - THE SHADER PRESENTATION EMULATION BREAKTHROUGH!
+//	// We force allocate the primary screen quad layout shaders inside gl.legacyMode!
+//	// This is ultra-lightweight and natively supported by any OpenGL 2.0 Windows XP driver.
+//	mPresentShader = new FPresentShader();
+//
+//	if (!gl.legacyMode)
+//	{
+//		mPresent3dCheckerShader = new FPresent3DCheckerShader();
+//		mPresent3dColumnShader = new FPresent3DColumnShader();
+//		mPresent3dRowShader = new FPresent3DRowShader();
+//		mShadowMapShader = new FShadowMapShader();
+//
+//		glGenVertexArrays(1, &mVAOID);
+//		glBindVertexArray(mVAOID);
+//		FGLDebug::LabelObject(GL_VERTEX_ARRAY, mVAOID, "FGLRenderer.mVAOID");
+//	}
+//	else
+//	{
+//		// Fixed-Function path shadow/3D allocations stay disabled to block drifts
+//		mPresent3dCheckerShader = nullptr;
+//		mPresent3dColumnShader = nullptr;
+//		mPresent3dRowShader = nullptr;
+//		mShadowMapShader = nullptr;
+//		mVAOID = 0;
+//	}
+//
+//	mFBID = 0;
+//	mOldFBID = 0;
+//
+//	// Reallocate dedicated fixed-function GL1x/GL2x polygonal storage meshes
+//	if (gl.legacyMode)
+//	{
+//		mVBO = new FFlatVertexBuffer(width, height);
+//		mSkyVBO = new FSkyVertexBuffer();
+//
+//		// Force register our legacy array mapping buffer onto the active rendering thread context
+//		gl_RenderState.SetVertexBuffer(mVBO);
+//	}
+//
+//	mShaderManager = new FShaderManager;
+//	mSamplerManager = new FSamplerManager;
+//
+//	GetSpecialGL1xTextures();
+//}
+
+FGLRenderer::~FGLRenderer()
 {
 	FlushModels();
 	TexMan.FlushAll();
+
 	if (mShaderManager != nullptr) delete mShaderManager;
 	if (mSamplerManager != nullptr) delete mSamplerManager;
 	if (mFBID != 0) glDeleteFramebuffers(1, &mFBID);
+
 	if (mVAOID != 0)
 	{
 		glBindVertexArray(0);
 		glDeleteVertexArrays(1, &mVAOID);
 	}
+
+	// Clean legacy GL1x/GL2x fixed-function memory buckets safely
+	if (mVBO != nullptr) delete mVBO;
+	if (mSkyVBO != nullptr) delete mSkyVBO;
+
 	if (mBuffers) delete mBuffers;
 	if (mSaveBuffers) delete mSaveBuffers;
 	if (mPresentShader) delete mPresentShader;
@@ -121,6 +211,18 @@ FGLRenderer::~FGLRenderer()
 	if (mPresent3dColumnShader) delete mPresent3dColumnShader;
 	if (mPresent3dRowShader) delete mPresent3dRowShader;
 	if (mShadowMapShader) delete mShadowMapShader;
+}
+
+void FGLRenderer::GetSpecialGL1xTextures()
+{
+	if (gl.legacyMode)
+	{
+		// Also needs to be done on game restart but IDK how yet?
+		gl1xLight = TexMan.CheckForTexture("glstuff/gl1xlight.png", ETextureType::MiscPatch);
+		gl1xPart1 = TexMan.CheckForTexture("glstuff/gl1xpart1.png", ETextureType::MiscPatch);
+		gl1xPart2 = TexMan.CheckForTexture("glstuff/gl1xpart2.png", ETextureType::MiscPatch);
+		mirrorgl1xTexture = TexMan.CheckForTexture("glstuff/mirrorgl1x.png", ETextureType::MiscPatch);
+	}
 }
 
 //===========================================================================

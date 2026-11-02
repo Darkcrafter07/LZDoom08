@@ -39,6 +39,9 @@
 #include "printf.h"
 #include "hwrenderer/data/buffers.h"
 
+#include "common/rendering/gl_load/gl_system.h"    // to get GL commands
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
+
 //==========================================================================
 //
 //
@@ -49,6 +52,12 @@ FFlatVertexBuffer::FFlatVertexBuffer(int width, int height, int pipelineNbr):
 	mPipelineNbr(pipelineNbr)
 {
 	vbo_shadowdata.Resize(NUM_RESERVED);
+
+	if (gl.legacyMode || gl.gl1path)
+	{
+		m_Legacy_CPU_Memory = new FFlatVertex[BUFFER_SIZE];
+		DPrintf(DMSG_NOTIFY, "Using client array buffer for legacy pipeline draw loops\n");
+	}
 
 	// the first quad is reserved for handling coordinates through uniforms.
 	vbo_shadowdata[0].Set(0, 0, 0, 0, 0);
@@ -89,7 +98,9 @@ FFlatVertexBuffer::FFlatVertexBuffer(int width, int height, int pipelineNbr):
 		mVertexBufferPipeline[n] = screen->CreateVertexBuffer();
 
 		unsigned int bytesize = BUFFER_SIZE * sizeof(FFlatVertex);
-		mVertexBufferPipeline[n]->SetData(bytesize, nullptr, BufferUsageType::Persistent);
+		// If legacyMode is on, downgrade vertex storage allocation flags to dynamic streams usage
+		BufferUsageType targetUsage = (gl.legacyMode || gl.gl1path) ? BufferUsageType::Stream : BufferUsageType::Persistent;
+		mVertexBufferPipeline[n]->SetData(bytesize, nullptr, targetUsage);
 
 		static const FVertexBufferAttribute format[] = {
 			{ 0, VATTR_VERTEX, VFmt_Float3, (int)myoffsetof(FFlatVertex, x) },
@@ -115,13 +126,30 @@ FFlatVertexBuffer::FFlatVertexBuffer(int width, int height, int pipelineNbr):
 
 FFlatVertexBuffer::~FFlatVertexBuffer()
 {
-	for (int n = 0; n < mPipelineNbr; n++)
+	// 1. [Darkcrafter07] - Clean up our custom legacy Client Array memory grid safely
+	if (m_Legacy_CPU_Memory != nullptr)
 	{
-		delete mVertexBufferPipeline[n];
+		delete[] m_Legacy_CPU_Memory;
+		m_Legacy_CPU_Memory = nullptr;
 	}
 
-	delete mIndexBuffer;
-	mIndexBuffer = nullptr;
+	// 2. Loop and destroy Magnus's modern pipelines handlers
+	for (int n = 0; n < mPipelineNbr; n++)
+	{
+		if (mVertexBufferPipeline[n] != nullptr)
+		{
+			delete mVertexBufferPipeline[n];
+			mVertexBufferPipeline[n] = nullptr;
+		}
+	}
+
+	// 3. Purge index arrays layout trackers
+	if (mIndexBuffer != nullptr)
+	{
+		delete mIndexBuffer;
+		mIndexBuffer = nullptr;
+	}
+
 	mVertexBuffer = nullptr;
 }
 
@@ -179,4 +207,72 @@ void FFlatVertexBuffer::Copy(int start, int count)
 
 	mVertexBuffer = old;
 }
+
+//==========================================================================
+//
+// GL1x/GL2x stuff
+//
+//==========================================================================
+
+void FFlatVertexBuffer::BindVBO()
+{
+	// ---=== PATHWAY A: ORIGINAL MODERN CORE PROFILE SHADER ROUTING (GL3.3+) ===---
+	if (!gl.legacyMode && !gl.gl1path)
+	{
+		glBindBuffer(GL_ARRAY_BUFFER, vbo_id);
+
+		// Modern core profile attribute layout pointers binding path
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, sizeof(FFlatVertex), &((FFlatVertex*)NULL)->x);
+		glVertexAttribPointer(1, 2, GL_FLOAT, false, sizeof(FFlatVertex), &((FFlatVertex*)NULL)->u);
+		glEnableVertexAttribArray(0);
+		glEnableVertexAttribArray(1);
+	}
+	// ---=== [Darkcrafter07] PATHWAY B: PURE FIXED-FUNCTION CLIENT ARRAYS PASS ===---
+	else
+	{
+		// [Darkcrafter07] - HARD-WIPE MODERN BUFFER OBJECTS LOCKS!
+		// We explicitly bind array buffer to 0 to instruct the legacy GPU driver
+		// to pull vertices data directly from raw system RAM pointers sheets instead of VRAM!
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+		if (m_Legacy_CPU_Memory != nullptr)
+		{
+			// Force state pipeline flags configuration baseline
+			glDisable(GL_LIGHTING);
+			glActiveTexture(GL_TEXTURE0);
+			glEnable(GL_TEXTURE_2D);
+
+			// [Darkcrafter07] - THE MONOLITHIC HARDWARE VERTEX ENTRY COUPLING!
+			// We stream floating-point bytes strictly from our secure continuous CPU memory block!
+			glVertexPointer(3, GL_FLOAT, sizeof(FFlatVertex), &m_Legacy_CPU_Memory[0].x);
+			glTexCoordPointer(2, GL_FLOAT, sizeof(FFlatVertex), &m_Legacy_CPU_Memory[0].u);
+
+			glEnableClientState(GL_VERTEX_ARRAY);
+			glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+			glDisableClientState(GL_COLOR_ARRAY);
+		}
+	}
+}
+
+
+//void FFlatVertexBuffer::RenderArray(unsigned int primtype, unsigned int offset, unsigned int count)
+//{
+//	glDrawArrays(primtype, offset, count);
+//}
+
+void FFlatVertexBuffer::RenderArray(unsigned int primtype, unsigned int offset, unsigned int count)
+{
+	// Fire standard un-indexed native primitive array rasterization loop
+	glDrawArrays(primtype, offset, count);
+
+	// [Darkcrafter07] - POST-DRAW CONTEXT SANITIZER LAYER
+	if (gl.legacyMode || gl.gl1path)
+	{
+		// Safely drop active client array states hooks to safeguard subsequent HUD pipeline passes
+		glDisableClientState(GL_VERTEX_ARRAY);
+		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+		glFlush();
+	}
+}
+
 

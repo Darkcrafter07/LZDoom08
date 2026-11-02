@@ -30,6 +30,7 @@
 #include "hw_renderstate.h"
 #include "hw_material.h"
 #include "c_cvars.h"
+#include <gl_load.h>
 
 namespace OpenGLRenderer
 {
@@ -139,6 +140,10 @@ public:
 	void EnableDepthTest(bool on) override;
 	void EnableMultisampling(bool on) override;
 	void EnableLineSmooth(bool on) override;
+
+	// GL1x/GL2x legacy stuff follows
+	// Declared in gl_rendergl1xstate.cpp and runs from there any place in codebase via bridge in hw_renderstate.h "ApplyGL1xStateBridge"
+	void ApplyGL1x(AActor *actor = nullptr); // if not declared here, then not gonna work in "gl_rendergl1xstate"
 
 
 };

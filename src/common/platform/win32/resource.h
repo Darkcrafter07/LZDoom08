@@ -149,14 +149,15 @@
 #define IDCE_MODULATIONTIME2            1135
 #define IDC_WELCOME_VERSION             4019
 #define IDC_WELCOME_OPENGL              4020
-#define IDC_WELCOME_SOFTWARE            4021
-#define IDC_WELCOME_FULLSCREEN          4022
-#define IDC_WELCOME_NOAUTOLOAD          4023
-#define IDC_WELCOME_LIGHTS              4024
-#define IDC_WELCOME_BRIGHTMAPS          4025
+#define IDC_WELCOME_GL1COMPAT           4021
+#define IDC_WELCOME_SOFTWARE            4022
+#define IDC_WELCOME_FULLSCREEN          4023
+#define IDC_WELCOME_NOAUTOLOAD          4024
+#define IDC_WELCOME_LIGHTS              4025
+#define IDC_WELCOME_BRIGHTMAPS          4026
 #define IDC_WELCOME_WIDESCREEN          1087
-#define IDC_WELCOME_VULKAN              4026
-#define IDC_WELCOME_VULKAN1             4026
+#define IDC_WELCOME_VULKAN              4027
+#define IDC_WELCOME_VULKAN1             4027
 
 // Next default values for new objects
 // 

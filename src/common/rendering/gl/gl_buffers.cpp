@@ -76,9 +76,38 @@ void GLBuffer::Bind()
 }
 
 
-void GLBuffer::SetData(size_t size, const void *data, BufferUsageType usage)
+void GLBuffer::SetData(size_t size, const void* data, BufferUsageType usage)
 {
 	Bind();
+
+	// [Darkcrafter07] - THE ATOMIC DUAL-MAPPING SHIELD BYPASS!
+	// Fixed the critical double-mapping bug that overrode the 'map' pointer with nullptr!
+	// We only allocate the GPU buffer boundaries here, letting GLBuffer::Map() handle the true locking.
+	if (gl.legacyMode || gl.gl1path)
+	{
+		mPersistent = false;
+		nomap = false;
+		buffersize = size;
+
+		if (usage == BufferUsageType::Static || usage == BufferUsageType::Mappable)
+		{
+			glBufferData(mUseType, size, data, GL_STATIC_DRAW);
+			map = nullptr;
+		}
+		else if (usage == BufferUsageType::Stream || usage == BufferUsageType::Persistent)
+		{
+			// Allocate a pristine dynamic streaming data block container on Windows XP
+			glBufferData(mUseType, size, nullptr, GL_STREAM_DRAW);
+
+			// LEAVE MAP NULL! It will be correctly and safely mapped during the subsequent Map() invocation!
+			map = nullptr;
+		}
+
+		InvalidateBufferState();
+		return; // Legacy route configuration secured!
+	}
+
+	// ---=== ORIGINAL MODERN PROFILE SHADER PATHWAY (GL3.3+) ===---
 	if (usage == BufferUsageType::Static)
 	{
 		glBufferData(mUseType, size, data, GL_STATIC_DRAW);
@@ -107,6 +136,7 @@ void GLBuffer::SetData(size_t size, const void *data, BufferUsageType usage)
 		glBufferData(mUseType, size, nullptr, GL_STATIC_DRAW);
 		map = nullptr;
 	}
+
 	buffersize = size;
 	InvalidateBufferState();
 }
@@ -119,11 +149,24 @@ void GLBuffer::SetSubData(size_t offset, size_t size, const void *data)
 
 void GLBuffer::Map()
 {
-	assert(nomap == false);	// do not allow mapping of static buffers. Vulkan cannot do that so it should be blocked in OpenGL, too.
+	assert(nomap == false);
+
 	if (!mPersistent && !nomap)
 	{
 		Bind();
-		map = (FFlatVertex*)glMapBufferRange(mUseType, 0, buffersize, GL_MAP_WRITE_BIT|GL_MAP_UNSYNCHRONIZED_BIT);
+
+		// [Darkcrafter07] - HARDWARE INTERCEPT FOR OPENGL 1.5.1
+		// glMapBufferRange is strictly an OpenGL 3.0+ entry point! On GeForce FX5500 it is NULL.
+		// We fallback natively to the traditional glMapBuffer command to avoid Null Pointer Crashing!
+		if (gl.legacyMode || gl.gl1path)
+		{
+			map = glMapBuffer(mUseType, GL_WRITE_ONLY);
+		}
+		else
+		{
+			map = glMapBufferRange(mUseType, 0, buffersize, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+		}
+
 		InvalidateBufferState();
 	}
 }
@@ -234,13 +277,55 @@ void GLVertexBuffer::SetFormat(int numBindingPoints, int numAttributes, size_t s
 	}
 }
 
-void GLVertexBuffer::Bind(int *offsets)
+void GLVertexBuffer::Bind(int* offsets)
 {
 	int i = 0;
 
 	// This is what gets called from RenderState.Apply. It shouldn't be called anywhere else if the render state is in use
 	GLBuffer::Bind();
-	for(auto &attrinf : mAttributeInfo)
+
+	// ---=== [Darkcrafter07] PATHWAY A: FIXED-FUNCTION PIPELINE ALIGNMENT (GL1x) ===---
+	if (gl.legacyMode)
+	{
+		for (auto& attrinf : mAttributeInfo)
+		{
+			if (attrinf.size == 0)
+			{
+				glDisableVertexAttribArray(i);
+			}
+		}
+
+		// [Darkcrafter07] - REPLICATING AUTHENTIC 3.88b FIXED-FUNCTION CLIENT STATES!
+		// Instead of feeding modern attributes, we unpack the raw floating-point bytes 
+		// directly from the active persistently mapped CPU pointer layout channel (Memory)!
+		// Stride is automatically updated matching modern 4.14 buffer objects layouts.
+		uint8_t* basePointer = static_cast<uint8_t*>(Memory());
+
+		if (basePointer != nullptr)
+		{
+			// Extract custom offsets for vertices and textures from the compiled format structure
+			size_t vertexOffset = mAttributeInfo[VATTR_VERTEX].offset;
+			size_t texcoordOffset = mAttributeInfo[VATTR_TEXCOORD].offset;
+
+			if (offsets != nullptr)
+			{
+				vertexOffset += mStride * offsets[mAttributeInfo[VATTR_VERTEX].bindingpoint];
+				texcoordOffset += mStride * offsets[mAttributeInfo[VATTR_TEXCOORD].bindingpoint];
+			}
+
+			// Stream raw float entries straight into legacy hardware fixed arrays registers!
+			glVertexPointer(3, GL_FLOAT, (GLsizei)mStride, basePointer + vertexOffset);
+			glTexCoordPointer(2, GL_FLOAT, (GLsizei)mStride, basePointer + texcoordOffset);
+
+			glEnableClientState(GL_VERTEX_ARRAY);
+			glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+			glDisableClientState(GL_COLOR_ARRAY);
+		}
+		return; // Buffer bound natively via traditional 1.1 client array specs, abort modern paths!
+	}
+
+	// ---=== PATHWAY B: ORIGINAL MODERN SHADER PATH (Core Profile GL3x+) ===---
+	for (auto& attrinf : mAttributeInfo)
 	{
 		if (attrinf.size == 0)
 		{

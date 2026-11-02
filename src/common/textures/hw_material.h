@@ -1,4 +1,4 @@
-
+// hw_material.h
 #ifndef __GL_MATERIAL_H
 #define __GL_MATERIAL_H
 
@@ -73,6 +73,8 @@ public:
 	{
 		return mTextureLayers;
 	}
+
+	FMaterial* GetBrightmapLegacy(); // GL1x/GL2x brightmaps
 };
 
 #endif

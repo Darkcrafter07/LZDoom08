@@ -52,6 +52,9 @@
 #include "v_video.h"
 #include "v_font.h"
 
+#include "common/textures/hw_material.h"
+#include "common/rendering/gl_load/gl_interface.h"
+
 // Wrappers to keep the definitions of these classes out of here.
 IHardwareTexture* CreateHardwareTexture(int numchannels);
 
@@ -348,9 +351,43 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 		bool checkonly = !!(flags & CTF_CheckOnly);
 
 		int exx = !!(flags & CTF_Expand);
+		// ==============================================================================
+		// DARKCRAFTER07: LEGACY HIGH-RES BRIGHTMAP BUFFER SYNCHRONIZATION
+		// ==============================================================================
+		// If we are in legacy mode and processing a brightmap layer that belongs to a
+		// high-resolution pack texture replacement, we must enforce the master buffer
+		// allocation size (W, H) to match the parent HD dimensions. This completely
+		// eliminates memory corruption loops inside CopyTrueColorPixels().
 
-		W = GetWidth() + 2 * exx;
-		H = GetHeight() + 2 * exx;
+		// Resolve the active FGameTexture container using GZ4x explicit id cast solver
+		FGameTexture* thisGameTex = TexMan.GetGameTexture(FSetTextureID(SourceLump));
+		FGameTexture* parentTexLink = (thisGameTex != nullptr) ? thisGameTex->ParentTexture : nullptr;
+
+		// Universal High-Res Pack (HRP) buffer synchronization pass
+		bool isVirtualHiResBrightmap = false;
+		int parentW = 0, parentH = 0;
+
+		// Re-mapped to read dimensions via the internal FTexture link
+		if (gl.legacyMode && (parentTexLink != nullptr) && (parentTexLink->GetTexture() != nullptr))
+		{
+			parentW = parentTexLink->GetTexture()->GetWidth();
+			parentH = parentTexLink->GetTexture()->GetHeight();
+
+			// If parent texture dimensions are significantly larger, a hi-res pack is active
+			if (parentW > GetWidth() || parentH > GetHeight())
+			{
+				isVirtualHiResBrightmap = true;
+				W = parentW + 2 * exx;
+				H = parentH + 2 * exx;
+			}
+		}
+
+		// Standard fallback for low-res assets or if sizes already match
+		if (!isVirtualHiResBrightmap)
+		{
+			W = GetWidth() + 2 * exx;
+			H = GetHeight() + 2 * exx;
+		}
 
 		if (!checkonly)
 		{
@@ -359,22 +396,65 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 			if (remap) translation = remap->Index;
 
 			int trans;
-			auto Pixels = GetBgraBitmap(remap ? remap->Palette : nullptr, &trans);
 			
-			if(!exx && Pixels.ClipRect.x == 0 && Pixels.ClipRect.y == 0 && Pixels.ClipRect.width == Pixels.Width && Pixels.ClipRect.height == Pixels.Height && (Pixels.FreeBuffer || !IsLuminosityTranslation(translation)))
+			if (isVirtualHiResBrightmap)
 			{
-				buffer = Pixels.data;
-				result.mFreeBuffer = Pixels.FreeBuffer;
-				Pixels.FreeBuffer = false;
-			}
-			else
-			{
+				// Secure the original tiny low-res brightmap mask source data
+				int lowW = GetWidth();
+				int lowH = GetHeight();
+				unsigned char *lowResSrc = new unsigned char[lowW * lowH * 4];
+				memset(lowResSrc, 0, lowW * lowH * 4);
+				FBitmap lowResBmp(lowResSrc, lowW * 4, lowW, lowH);
+				
+				// Replaced deleted CopyTrueColorPixels with native GetBgraBitmap pipeline dump
+				auto ThisLowResPixels = this->GetBgraBitmap(nullptr, &trans);
+				lowResBmp.Blit(0, 0, ThisLowResPixels);
+
 				buffer = new unsigned char[W * (H + 1) * 4];
 				memset(buffer, 0, W * (H + 1) * 4);
 
-				FBitmap bmp(buffer, W * 4, W, H);
+				// Nearest-neighbor high-fidelity software upscale interpolation
+				for (int y = 0; y < H; y++)
+				{
+					for (int x = 0; x < W; x++)
+					{
+						int srcX = (x * lowW) / W;
+						int srcY = (y * lowH) / H;
+						if (srcX >= lowW) srcX = lowW - 1;
+						if (srcY >= lowH) srcY = lowH - 1;
 
-				bmp.Blit(exx, exx, Pixels);
+						int destIdx = 4 * (y * W + x);
+						int srcIdx = 4 * (srcY * lowW + srcX);
+
+						buffer[destIdx] = lowResSrc[srcIdx];
+						buffer[destIdx + 1] = lowResSrc[srcIdx + 1];
+						buffer[destIdx + 2] = lowResSrc[srcIdx + 2];
+						buffer[destIdx + 3] = lowResSrc[srcIdx + 3];
+					}
+				}
+				delete[] lowResSrc;
+				isTransparent = bTranslucent; 
+			}
+			else
+			{
+				auto Pixels = GetBgraBitmap(remap ? remap->Palette : nullptr, &trans);
+				
+				if(!exx && Pixels.ClipRect.x == 0 && Pixels.ClipRect.y == 0 && Pixels.ClipRect.width == Pixels.Width && Pixels.ClipRect.height == Pixels.Height && (Pixels.FreeBuffer || !IsLuminosityTranslation(translation)))
+				{
+					buffer = Pixels.data;
+					result.mFreeBuffer = Pixels.FreeBuffer;
+					Pixels.FreeBuffer = false;
+				}
+				else
+				{
+					buffer = new unsigned char[W * (H + 1) * 4];
+					memset(buffer, 0, W * (H + 1) * 4);
+
+					FBitmap bmp(buffer, W * 4, W, H);
+
+					bmp.Blit(exx, exx, Pixels);
+				}
+				isTransparent = bTranslucent;
 			}
 			
 			if (IsLuminosityTranslation(translation))
@@ -382,17 +462,102 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 				V_ApplyLuminosityTranslation(LuminosityTranslationDesc::fromInt(translation), buffer, W * H);
 			}
 
-			if (remap == nullptr)
+			// --- Darkcrafter07
+			// --- Black and white brightmaps look ugly in GL1x/GL2x modes
+			// --- so colorize them and cut them according to base texture transparency
+			if (gl.legacyMode && (parentTexLink != nullptr) && (parentTexLink->GetTexture() != nullptr))
+			{
+				unsigned char * parentBuf = new unsigned char[W * (H + 1) * 4];
+				memset(parentBuf, 0, W * (H + 1) * 4);
+				FBitmap parentBmp(parentBuf, W * 4, W, H);
+
+				// HRP textures initialized via script scaling metrics require pure unshifted 
+				// pixel mapping. By forcing '0, 0' offset bounds instead of passing 'exx' filters,
+				// the high-res diffuse texture aligns perfectly with the upscaled brightmap mask.
+				if (isVirtualHiResBrightmap)
+				{
+					// Dump raw high-res parent bits through GetBgraBitmap
+					auto ParentHiResPixels = parentTexLink->GetTexture()->GetBgraBitmap(remap ? remap->Palette : nullptr, &trans);
+					parentBmp.Blit(0, 0, ParentHiResPixels);
+				}
+				else
+				{
+					// Standard fallback path using the correct FTexture instance channel routing
+					auto ParentPixels = parentTexLink->GetTexture()->GetBgraBitmap(remap ? remap->Palette : nullptr, &trans);
+					parentBmp.Blit(exx, exx, ParentPixels);
+				}
+
+				const int clampMaxPxBrightness = 192;  // To decrease overburn slightly
+
+				// 3. Process pixels: Colorize, Desaturate and Cut by Parent Alpha
+				for (int i = 0; i < W * H; i++)
+				{
+					int idx = 4 * i;
+
+					if (parentBuf[idx + 3] == 0)
+					{
+						buffer[idx] = 0;     
+						buffer[idx + 1] = 0; 
+						buffer[idx + 2] = 0; 
+						buffer[idx + 3] = 0; 
+						continue;
+					}
+
+					// --- OVEREXPOSURE CLAMP ---
+					// Soft-clip the extreme white hotspots of the raw mask BEFORE any math is executed.
+					// This keeps middle-low intensities (glowing eyes, dim runes) uncorrupted and punchy,
+					// while shielding the frame buffer from pure white saturation leaks.
+					if (buffer[idx] > clampMaxPxBrightness) buffer[idx] = clampMaxPxBrightness;
+					if (buffer[idx + 1] > clampMaxPxBrightness) buffer[idx + 1] = clampMaxPxBrightness;
+					if (buffer[idx + 2] > clampMaxPxBrightness) buffer[idx + 2] = clampMaxPxBrightness;
+					if (buffer[idx + 3] > clampMaxPxBrightness) buffer[idx + 3] = clampMaxPxBrightness;
+
+					// Multiply brightmap mask by parent colors (Base * Brightmap / 255)
+					const float invMaxDoomLightLevel = 1.0f / 255.0f;
+					float r = (float)(buffer[idx] * parentBuf[idx]) * invMaxDoomLightLevel;
+					float g = (float)(buffer[idx + 1] * parentBuf[idx + 1]) * invMaxDoomLightLevel;
+					float b = (float)(buffer[idx + 2] * parentBuf[idx + 2]) * invMaxDoomLightLevel;
+
+					// Calculate parent's alpha ratio (0.0 to 1.0)
+					float alphaRatio = (float)parentBuf[idx + 3] * invMaxDoomLightLevel;
+
+					// Calculate luminance (Rec.709) for desaturation
+					float luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+
+					// Mixing: 95% color + 5% luma (desaturate by 5%)
+					float saturationFactor = 0.95f;
+
+					// Final color calculation with saturation adjustment
+					float finalR = luma + (r - luma) * saturationFactor;
+					float finalG = luma + (g - luma) * saturationFactor;
+					float finalB = luma + (b - luma) * saturationFactor;
+
+					// Apply parent alpha to color to ensure it fades out where parent is translucent
+					buffer[idx] = (unsigned char)clamp<float>(finalR * alphaRatio, 0, 255);
+					buffer[idx + 1] = (unsigned char)clamp<float>(finalG * alphaRatio, 0, 255);
+					buffer[idx + 2] = (unsigned char)clamp<float>(finalB * alphaRatio, 0, 255);
+
+					// Final alpha should be clamped to parent's alpha to avoid "ghosting"
+					buffer[idx + 3] = (unsigned char)clamp<int>(buffer[idx + 3] * alphaRatio, 0, 255);
+				}
+				delete[] parentBuf;
+			}
+			// ------------------------------------------------------------------------
+
+			if (remap == nullptr && !isVirtualHiResBrightmap)
 			{
 				CheckTrans(buffer, W * H, trans);
 				isTransparent = bTranslucent;
 			}
-			else
+			else if (remap != nullptr)
 			{
 				isTransparent = 0;
 				// A translated image is not conclusive for setting the texture's transparency info.
 			}
 		}
+
+		// alpha texture for legacy mode
+		// if (alphatrans) // left here for historic records tracking
 
 		if (GetImage())
 		{
@@ -403,7 +568,7 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 			builder.expand = exx;
 			result.mContentId = builder.id;
 		}
-		else result.mContentId = 0;	// for non-image backed textures this has no meaning so leave it at 0.
+		else result.mContentId = 0; // for non-image backed textures this has no meaning so leave it at 0.	
 
 		result.mBuffer = buffer;
 		result.mWidth = W;
@@ -418,7 +583,6 @@ FTextureBuffer FTexture::CreateTexBuffer(int translation, int flags)
 		}
 	}
 	return result;
-
 }
 
 //===========================================================================

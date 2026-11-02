@@ -1,5 +1,5 @@
 /*
-** r_translate.cpp
+** r_palettecontainer.cpp
 ** Translation table handling
 **
 **---------------------------------------------------------------------------

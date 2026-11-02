@@ -1,3 +1,5 @@
+
+// hw_renderstate.h
 #pragma once
 
 #include "vectors.h"
@@ -6,6 +8,9 @@
 #include "texmanip.h"
 #include "version.h"
 #include "i_interface.h"
+#include "actor.h"
+
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
 
 struct FColormap;
 class IVertexBuffer;
@@ -206,7 +211,7 @@ struct StreamData
 
 class FRenderState
 {
-protected:
+public:
 	uint8_t mFogEnabled;
 	uint8_t mTextureEnabled:1;
 	uint8_t mGlowEnabled : 1;
@@ -228,6 +233,10 @@ protected:
 	float mAlphaThreshold;
 	float mClipSplit[2];
 
+	int mEffectState;
+	int mColormapState;
+	int mTempTM = TM_MODULATE;
+
 
 	int mColorMapSpecial;
 	float mColorMapFlash;
@@ -239,6 +248,8 @@ protected:
 
 	FMaterialState mMaterial;
 	FDepthBiasState mBias;
+
+	FVector4 mDynGL1xColor; // GL1x/GL2x dynlight color
 
 	IVertexBuffer *mVertexBuffer;
 	int mVertexOffsets[2];	// one per binding point
@@ -274,6 +285,7 @@ public:
 		mStreamData.uTextureBlendColor = 0;
 		mStreamData.uTextureAddColor = 0;
 		mStreamData.uTextureModulateColor = 0;
+		mDynGL1xColor = { 0.0f, 0.0f, 0.0f, 0.0f }; // reset GL1x/GL2x dynlight color
 		mSoftLight = 0;
 		mLightParms[0] = mLightParms[1] = mLightParms[2] = 0.0f;
 		mLightParms[3] = -1.f;
@@ -310,6 +322,14 @@ public:
 		mModelMatrix.loadIdentity();
 		mTextureMatrix.loadIdentity();
 		ClearClipSplit();
+
+		// === [Darkcrafter07] ===
+		g_isCurrentlyGLSpriteDrawing = false; // if it's sprite rendering now (currently used for GL1/GL2x only but also works for GL3+)
+		g_isCurrentlyGL1xDynlightPassActive = false; // GL1x/GL2x - track whether walls, flats or sprites are lit by a GL1x/GL2x dynlight
+		g_isCurrentlyDrawingGL1xTransluscentDynlightWall = false; // track whether a transluscent GL1x/GL2x dynlight lit wall is drawing now
+		g_isCurrentlyDrawingGL1xTransluscentDynlightFlat = false; // track whether a transluscent GL1x/GL2x dynlight lit flat is drawing now
+		g_isHUDWeapDynlightPass = false; // if it's a HUD onscreen weapon lit by camglow dynlight (currently used for GL1/GL2x only)
+		// =======================
 	}
 
 	void SetNormal(FVector3 norm)
@@ -421,6 +441,12 @@ public:
 	void EnableBrightmap(bool on)
 	{
 		mBrightmapEnabled = on;
+	}
+
+	// [Darkcrafter07] - Expose brightmap state visibility for GL1x/GL2x modes
+	bool IsBrightmapEnabled() const
+	{
+		return !!mBrightmapEnabled;
 	}
 
 	void EnableSplit(bool on)
@@ -609,6 +635,14 @@ public:
 		mBias.mUnits = 0;
 	}
 
+	// === [Darkcrafter07] ===
+	bool g_isCurrentlyGLSpriteDrawing; // if it's sprite rendering now (currently used for GL1/GL2x only but also works for GL3+)
+	bool g_isCurrentlyGL1xDynlightPassActive; // GL1x/GL2x - track whether walls, flats or sprites are lit by a GL1x/GL2x dynlight
+	bool g_isCurrentlyDrawingGL1xTransluscentDynlightWall; // track whether a transluscent GL1x/GL2x dynlight lit wall is drawing now
+	bool g_isCurrentlyDrawingGL1xTransluscentDynlightFlat; // track whether a transluscent GL1x/GL2x dynlight lit flat is drawing now
+	bool g_isHUDWeapDynlightPass; // if it's a HUD onscreen weapon lit by camglow dynlight (currently used for GL1/GL2x only)
+	// =======================
+
 private:
 	void SetMaterial(FMaterial *mat, int clampmode, int translation, int overrideshader)
 	{
@@ -623,6 +657,19 @@ private:
 	}
 
 public:
+
+	void SetGL1xMaterial(FMaterial* mat, int clampmode, int translation, int overrideshader, bool alphatexture)
+	{
+		// Force check for invalid texture contexts to prevent state drifts on WinXP
+		if (mat == nullptr) return;
+
+		// Replicate GZDoom v3x alpha-texture translation override
+		if (alphatexture && gl.legacyMode) translation = 0x7fffffff; // INT_MAX safe fallback
+
+		// Directly push to the new private state tracking structure of v4.14
+		SetMaterial(mat, clampmode, translation, overrideshader);
+	}
+
 	void SetMaterial(FGameTexture* tex, EUpscaleFlags upscalemask, int scaleflags, int clampmode, int translation, int overrideshader)
 	{
 		tex->setSeen();
@@ -662,6 +709,13 @@ public:
 		mClipSplit[0] = -1000000.f;
 		mClipSplit[1] = 1000000.f;
 	}
+
+	// GL1x/GL2x blend functionality for gl_renderstate.cpp
+	void BlendGL1xFunc(int src, int dst);
+	void AlphaGL1xFunc(int func, float thresh);
+	void BlendGL1xEquation(int eq);
+	void ApplyFixedGL1xFunction(AActor *actor);
+	void SetFixedGL1xColormap(int cm);
 
 	void SetVertexBuffer(IVertexBuffer *vb, int offset0, int offset1)
 	{
@@ -750,4 +804,12 @@ public:
 	}
 
 };
+
+// GL1x/GL2x bridge adapter
+namespace OpenGLRenderer
+{
+	// Call "ApplyGL1xStateBridge" in gl_rendergl1xstate.cpp
+	void ApplyGL1xStateBridge(class FRenderState& baseState, class AActor *actor = nullptr);
+}
+
 

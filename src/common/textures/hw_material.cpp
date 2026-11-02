@@ -223,4 +223,35 @@ void DeleteMaterial(FMaterial* mat)
 	delete mat;
 }
 
+//==========================================================================
+//
+// Solves and extracts attached smart GL1x/GL2x brightmap layers
+//
+//==========================================================================
+FMaterial* FMaterial::GetBrightmapLegacy()
+{
+	// sourcetex is the native GZ4x owning FGameTexture pointer inside FMaterial
+	if (sourcetex == nullptr) return nullptr;
 
+	// Verify if a valid Brightmap texture pointer is bound in the core slot
+	if (sourcetex->GetBrightmap() != nullptr)
+	{
+		// Fetch the raw internal FTexture link straight from the solved object
+		FTexture* rawBrightmapTex = sourcetex->GetBrightmap();
+
+		if (rawBrightmapTex != nullptr)
+		{
+			// Query TexMan using the parent's base ID 
+			FGameTexture* brightmapGameTex = TexMan.GetGameTexture(sourcetex->GetID());
+
+			// Fallback guard: check if TexMan needs to resolve it by raw pointer metadata
+			if (brightmapGameTex != nullptr)
+			{
+				// Successfully invokes ValidateTexture using the strict FGameTexture* signature.
+				return FMaterial::ValidateTexture(brightmapGameTex, 0);
+			}
+		}
+	}
+
+	return nullptr;
+}

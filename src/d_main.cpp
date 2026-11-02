@@ -123,6 +123,8 @@
 #include "i_system.h"  // for SHARE_DIR
 #endif // __unix__
 
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
+
 using namespace FileSys;
 
 EXTERN_CVAR(Bool, hud_althud)
@@ -297,6 +299,7 @@ CVAR(Bool, disableautoload, false, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALC
 CVAR(Bool, autoloadbrightmaps, false, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
 CVAR(Bool, autoloadlights, false, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
 CVAR(Bool, autoloadwidescreen, true, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
+CVAR (Bool, gl_usegl1mode, false, CVAR_ARCHIVE | CVAR_NOINITCALL | CVAR_GLOBALCONFIG)
 CVAR(Bool, r_debug_disable_vis_filter, false, 0)
 CVAR(Int, vid_showpalette, 0, 0)
 
@@ -1012,11 +1015,13 @@ void D_Display ()
 		wipestart = nullptr;
 	}
 
+	// -----------------------------
 	screen->FrameTime = I_msTimeFS();
 	TexAnim.UpdateAnimations(screen->FrameTime);
 	R_UpdateSky(screen->FrameTime);
 	screen->BeginFrame();
 	twod->ClearClipRect();
+
 	if ((gamestate == GS_LEVEL || gamestate == GS_TITLELEVEL) && gametic != 0)
 	{
 		// [ZZ] execute event hook that we just started the frame
@@ -1024,53 +1029,62 @@ void D_Display ()
 		//
 
 		D_Render([&]()
+			{
+				viewsec = RenderView(&players[consoleplayer]);
+			}, true);
+
+		if (gl.legacyMode && viewsec != nullptr && HWDrawInfo::CurrentGL1xInfo != nullptr)
 		{
-			viewsec = RenderView(&players[consoleplayer]);
-		}, true);
+			HWDrawInfo::CurrentGL1xInfo->DrawGL1xColormapOverlay(viewsec);
+		}
 
 		twod->Begin(screen->GetWidth(), screen->GetHeight());
 		if (!hud_toggled)
 		{
-			V_DrawBlend(viewsec);
+			// Software fallback blender for UI boxes elements (only on modern profiles)
+			if (!hud_toggled && !gl.legacyMode)
+			{
+				V_DrawBlend(viewsec);
+			}
+
 			if (automapactive)
 			{
-				primaryLevel->automap->Drawer ((hud_althud && viewheight == SCREENHEIGHT) ? viewheight : StatusBar->GetTopOfStatusbar());
+				primaryLevel->automap->Drawer((hud_althud && viewheight == SCREENHEIGHT) ? viewheight : StatusBar->GetTopOfStatusbar());
 			}
-		
-			// for timing the statusbar code.
-			//cycle_t stb;
-			//stb.Reset();
-			//stb.Clock();
+
 			if (!automapactive || viewactive)
 			{
-				StatusBar->RefreshViewBorder ();
+				StatusBar->RefreshViewBorder();
 			}
 			if (hud_althud && viewheight == SCREENHEIGHT && screenblocks > 10)
 			{
-				StatusBar->DrawBottomStuff (HUD_AltHud);
+				StatusBar->DrawBottomStuff(HUD_AltHud);
 				if (DrawFSHUD || automapactive) StatusBar->DrawAltHUD();
 				if (players[consoleplayer].camera && players[consoleplayer].camera->player && !automapactive)
 				{
-					StatusBar->DrawCrosshair(vp.TicFrac);
+					StatusBar->DrawCrosshair(r_viewpoint.TicFrac);
 				}
-				StatusBar->CallDraw (HUD_AltHud, vp.TicFrac);
-				StatusBar->DrawTopStuff (HUD_AltHud);
+				StatusBar->CallDraw(HUD_AltHud, r_viewpoint.TicFrac);
+				StatusBar->DrawTopStuff(HUD_AltHud);
 			}
 			else if (viewheight == SCREENHEIGHT && viewactive && screenblocks > 10)
 			{
 				EHudState state = DrawFSHUD ? HUD_Fullscreen : HUD_None;
-				StatusBar->DrawBottomStuff (state);
-				StatusBar->CallDraw (state, vp.TicFrac);
-				StatusBar->DrawTopStuff (state);
+				StatusBar->DrawBottomStuff(state);
+				StatusBar->CallDraw(state, r_viewpoint.TicFrac);
+				StatusBar->DrawTopStuff(state);
 			}
 			else
 			{
-				StatusBar->DrawBottomStuff (HUD_StatusBar);
-				StatusBar->CallDraw (HUD_StatusBar, vp.TicFrac);
-				StatusBar->DrawTopStuff (HUD_StatusBar);
+				StatusBar->DrawBottomStuff(HUD_StatusBar);
+				StatusBar->CallDraw(HUD_StatusBar, r_viewpoint.TicFrac);
+				StatusBar->DrawTopStuff(HUD_StatusBar);
 			}
-			//stb.Unclock();
-			//Printf("Stbar = %f\n", stb.TimeMS());
+		}
+
+		if (gl.legacyMode && HWDrawInfo::CurrentGL1xInfo != nullptr)
+		{
+			HWDrawInfo::CurrentGL1xInfo->SubmitGL1xFrame();
 		}
 	}
 	else
@@ -1078,27 +1092,27 @@ void D_Display ()
 		twod->Begin(screen->GetWidth(), screen->GetHeight());
 		switch (gamestate)
 		{
-			case GS_FULLCONSOLE:
-				D_PageDrawer();
-				C_DrawConsole ();
-				M_Drawer ();
-				End2DAndUpdate ();
-				return;
-				
-			case GS_DEMOSCREEN:
-				D_PageDrawer ();
-				break;
-				
+		case GS_FULLCONSOLE:
+			D_PageDrawer();
+			C_DrawConsole();
+			M_Drawer();
+			End2DAndUpdate();
+			return;
+
+		case GS_DEMOSCREEN:
+			D_PageDrawer();
+			break;
+
 		case GS_CUTSCENE:
 		case GS_INTRO:
 			ScreenJobDraw();
 			break;
 
-
-			default:
-				break;
+		default:
+			break;
 		}
 	}
+	// --------------------------
 	if (!hud_toggled)
 	{
 		CT_Drawer ();

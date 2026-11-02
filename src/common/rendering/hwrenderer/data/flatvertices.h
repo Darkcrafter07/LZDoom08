@@ -1,4 +1,4 @@
-
+// flatvertices.h
 #ifndef _HW__VERTEXBUFFER_H
 #define _HW__VERTEXBUFFER_H
 
@@ -9,6 +9,8 @@
 
 class FRenderState;
 struct secplane_t;
+
+struct vertex_t;    // forward declare to let GLES compile
 
 struct FFlatVertex
 {
@@ -51,7 +53,25 @@ struct FFlatVertex
 		u = _u;
 		v = _v;
 	}
+};
 
+// Gouraud flat vertex: position, texcoords and per-vertex light color.
+// Kept separate from FFlatVertex so the main flat VBO stays unchanged.
+struct FFlatVertexGouraud
+{
+	float x, z, y;     // world position
+	float u, v;        // texture coordinates
+	float r, g, b, a;  // per-vertex light color (modulates the flat)
+
+	void Set(float xx, float zz, float yy, float uu, float vv,
+		float rr, float gg, float bb, float aa = 1.0f)
+	{
+		x = xx; z = zz; y = yy;
+		u = uu; v = vv;
+		r = rr; g = gg; b = bb; a = aa;
+	}
+
+	void SetFlatGL1xVertex(vertex_t* vt, const secplane_t& plane);
 };
 
 class FFlatVertexBuffer
@@ -153,6 +173,13 @@ public:
 	{ 
 		return mPipelinePos; 
 	}
+
+	// GL1x/GL2x stuff below
+	FFlatVertex* map;
+	FFlatVertex* m_Legacy_CPU_Memory = nullptr; // legacy Client Array buffer container allocation pointer
+	unsigned int vbo_id;
+	void BindVBO();
+	void RenderArray(unsigned int primtype, unsigned int offset, unsigned int count);
 };
 
 #endif

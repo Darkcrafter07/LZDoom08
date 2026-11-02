@@ -100,6 +100,10 @@
 
 #include "texturemanager.h"
 
+#include "g_cvars.h" // for "gl_lights" cvar
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
+#include "common/rendering/hwrenderer/data/hw_cvars.h"
+
 void STAT_StartNewGame(const char *lev);
 void STAT_ChangeLevel(const char *newl, FLevelLocals *Level);
 FString STAT_EpisodeName();
@@ -110,6 +114,7 @@ EXTERN_CVAR (Float, sv_aircontrol)
 EXTERN_CVAR (Int, disableautosave)
 EXTERN_CVAR (String, playerclass)
 EXTERN_CVAR (Bool, ui_classic)
+EXTERN_CVAR (Int, r_fakecontrast)
 
 extern uint8_t globalfreeze, globalchangefreeze;
 int startpos = 0; // [RH] Support for multiple starts per level
@@ -154,9 +159,129 @@ CUSTOM_CVARD(Int, gl_maplightmode, -1, CVAR_NOINITCALL, "This is just for testin
 	if (self > 8 || self < -1) self = -1;
 }
 
-CUSTOM_CVARD(Int, gl_lightmode, 1, CVAR_ARCHIVE, "Select lighting mode. 2 is vanilla accurate, 1 is accurate to the ZDoom software renderer and 0 is without player light radius (Dark)")
+// Old GL1x/GL2x unfriendly block
+//CUSTOM_CVARD(Int, gl_lightmode, 1, CVAR_ARCHIVE, "Select lighting mode. 2 is vanilla accurate, 1 is accurate to the ZDoom software renderer and 0 is without player light radius (Dark)")
+//{
+//	if (self < 0 || self > 2) self = 1;
+//}
+
+// We need to turn on fake contrast for software modes because it's how original works.
+// Also, turn on camglow dynlights in the same fashion and enable gl dynlights in the menu.
+bool s_WasFakeContrastForcedByGL1x = false;
+bool s_WasCamglowDynlightForcedByGL1x = false;
+bool s_WasCamglowDynlightForcedByShaderGL3x = false;
+bool s_WereAllGLDynlightsForcedByGL1x = false;
+int s_SavedFakeContrastValForcedByGL1x = 1;
+int s_SavedCamglowDynlightValForcedByGL1x = 0;
+int s_SavedCamglowDynlightValForcedByShaderGL3x = 0;
+int s_SavedAllGLDynlightsValForcedByGL1x = 1;
+
+// Fully matching 4.14dev strict typed CUSTOM_CVAR macro template architectures!
+CUSTOM_CVAR(Int, gl_lightmode, 8, CVAR_ARCHIVE | CVAR_NOINITCALL)
 {
-	if (self < 0 || self > 2) self = 1;
+	int newself = self;
+	if (newself > 8) newself = 16; // use 8 and 16 for software lighting to avoid conflicts with the bit mask
+	else if (newself > 4) newself = 8;
+	else if (newself < 0) newself = 0;
+
+	if (self != newself)
+	{
+		self = newself; // Safe native atomic variable update 
+	}
+
+	// ---=== PATHWAY A: LEGACY FIXED-PIPELINE PATH ===---
+	if (gl.legacyMode)
+	{
+		if (newself == 2 || newself == 8 || newself == 16)
+		{
+			// If moving into software modes, memorize the original setting once
+			if (!s_WasFakeContrastForcedByGL1x)
+			{
+				s_SavedFakeContrastValForcedByGL1x = (int)r_fakecontrast;
+
+				// Force it ON if it was disabled by user previously
+				if ((int)r_fakecontrast == 0)
+				{
+					r_fakecontrast = 1;
+				}
+				s_WasFakeContrastForcedByGL1x = true;
+			}
+
+			// Memorize and force gl_camglowlight ON for software/vanilla/doom modes
+			if (!s_WasCamglowDynlightForcedByGL1x)
+			{
+				s_SavedCamglowDynlightValForcedByGL1x = (int)gl_camglowlight;
+
+				if ((int)gl_camglowlight == 0)
+				{
+					gl_camglowlight = 1;
+				}
+				s_WasCamglowDynlightForcedByGL1x = true;
+			}
+
+			// Safe fallback: Memorize and force gl_lights ON so camglow script can actually render
+			if (!s_WereAllGLDynlightsForcedByGL1x)
+			{
+				s_SavedAllGLDynlightsValForcedByGL1x = (int)gl_lights;
+
+				if ((int)gl_lights == 0)
+				{
+					gl_lights = 1;
+				}
+				s_WereAllGLDynlightsForcedByGL1x = true;
+			}
+		}
+		else
+		{
+			// Returning back to normal lighting modes (0, 1, 3, 4), roll back to their actual preference
+			if (s_WasFakeContrastForcedByGL1x)
+			{
+				r_fakecontrast = s_SavedFakeContrastValForcedByGL1x;
+				s_WasFakeContrastForcedByGL1x = false;
+			}
+
+			// Restore user's previous preference for camglow light
+			if (s_WasCamglowDynlightForcedByGL1x)
+			{
+				gl_camglowlight = s_SavedCamglowDynlightValForcedByGL1x;
+				s_WasCamglowDynlightForcedByGL1x = false;
+			}
+
+			// Restore user's previous preference for global dynamic lights system
+			if (s_WereAllGLDynlightsForcedByGL1x)
+			{
+				gl_lights = s_SavedAllGLDynlightsValForcedByGL1x;
+				s_WereAllGLDynlightsForcedByGL1x = false;
+			}
+		}
+	}
+	// ---=== PATHWAY B: MODERN SHADER PATH (GL3x+) ===---
+	else
+	{
+		if (newself == 2 || newself == 8 || newself == 16)
+		{
+			// If moving into shader software modes, memorize preference and force camglow OFF
+			if (!s_WasCamglowDynlightForcedByShaderGL3x)
+			{
+				s_SavedCamglowDynlightValForcedByShaderGL3x = (int)gl_camglowlight;
+
+				if ((int)gl_camglowlight != 0)
+				{
+					gl_camglowlight = 0;
+				}
+				s_WasCamglowDynlightForcedByShaderGL3x = true;
+			}
+		}
+		else
+		{
+			// Returning back to regular lighting modes, restore their native choice
+			if (s_WasCamglowDynlightForcedByShaderGL3x)
+			{
+				gl_camglowlight = s_SavedCamglowDynlightValForcedByShaderGL3x;
+				s_WasCamglowDynlightForcedByShaderGL3x = false;
+			}
+		}
+	}
 }
 
 ELightMode getRealLightmode(FLevelLocals* Level, bool for3d)

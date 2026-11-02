@@ -426,6 +426,10 @@ public:
 		Layers->Specular = T;
 	}
 
+	// [Darkcrafter07] - Legacy GL1x/GL2x brightmaps parent texture link solver
+	// Stores a direct pointer to the HD/diffuse texture this mask belongs to
+	FGameTexture* ParentTexture = nullptr; 
+
 };
 
 inline FGameTexture* MakeGameTexture(FTexture* tex, const char *name, ETextureType useType)

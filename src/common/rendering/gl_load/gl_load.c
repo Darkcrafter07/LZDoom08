@@ -40,27 +40,24 @@ static void* PosixGetProcAddress (const GLubyte* name)
 }
 #endif /* __sgi || __sun || __unix__ */
 
-// ==================================== Windows XP Compatibility Layer ====================================
+// ==================================== Windows Layer (Modern & XP combined) ==========================
+#if defined(_WIN32)
+
 #ifdef XPPATCH
 	// Activated when MadeForWinXP preset is ON
-	#if defined(_WIN32)
-		#ifdef _MSC_VER
-			#pragma inline_depth(0)
-			#pragma warning(disable: 4055)
-			#pragma warning(disable: 4054)
-			#pragma warning(disable: 4996)
-		#endif
-	#endif
+#ifdef _MSC_VER
+#pragma inline_depth(0)
+#pragma warning(disable: 4055)
+#pragma warning(disable: 4054)
+#pragma warning(disable: 4996)
+#endif
 #else
 	// Default configuration for modern Windows versions
-	#if defined(_WIN32)
-		#ifdef APIENTRY
-			#undef APIENTRY
-		#endif
-		#include <windows.h>
-	#endif
+#ifdef APIENTRY
+#undef APIENTRY
 #endif
-// ========================================================================================================
+#include <windows.h>
+#endif
 
 #ifdef _MSC_VER
 // disable inlining here because it creates an incredible amount of bloat in this file.
@@ -73,10 +70,10 @@ static void* PosixGetProcAddress (const GLubyte* name)
 static int TestPointer(const PROC pTest)
 {
 	ptrdiff_t iTest;
-	if(!pTest) return 0;
+	if (!pTest) return 0;
 	iTest = (ptrdiff_t)pTest;
 
-	if(iTest == 1 || iTest == 2 || iTest == 3 || iTest == -1) return 0;
+	if (iTest == 1 || iTest == 2 || iTest == 3 || iTest == -1) return 0;
 
 	return 1;
 }
@@ -88,9 +85,9 @@ static BOOL(WINAPI* makecurrent)(HDC, HGLRC);
 static PROC(WINAPI* getprocaddress)(LPCSTR name);
 static void CheckOpenGL(void)
 {
-    if (opengl32dll == 0)
-    {
-        opengl32dll = LoadLibraryA("OpenGL32.DLL");
+	if (opengl32dll == 0)
+	{
+		opengl32dll = LoadLibraryA("OpenGL32.DLL");
 		if (opengl32dll != 0)
 		{
 			createcontext = (HGLRC(WINAPI*)(HDC)) GetProcAddress(opengl32dll, "wglCreateContext");
@@ -104,38 +101,38 @@ static void CheckOpenGL(void)
 			MessageBoxA(0, "OpenGL32.dll not found", "Fatal error", MB_OK | MB_ICONERROR | MB_TASKMODAL);
 			exit(3);
 		}
-    }
+	}
 }
 
 HGLRC zd_wglCreateContext(HDC dc)
 {
-    CheckOpenGL();
-    return createcontext(dc);
+	CheckOpenGL();
+	return createcontext(dc);
 }
 
 BOOL zd_wglDeleteContext(HGLRC context)
 {
-    CheckOpenGL();
-    return deletecontext(context);
+	CheckOpenGL();
+	return deletecontext(context);
 }
 
 BOOL zd_wglMakeCurrent(HDC dc, HGLRC context)
 {
-    CheckOpenGL();
-    return makecurrent(dc, context);
+	CheckOpenGL();
+	return makecurrent(dc, context);
 }
 
 PROC zd_wglGetProcAddress(LPCSTR name)
 {
-    CheckOpenGL();
-    return getprocaddress(name);
+	CheckOpenGL();
+	return getprocaddress(name);
 }
 
-static PROC WinGetProcAddress(const char *name)
+static PROC WinGetProcAddress(const char* name)
 {
 	HMODULE glMod = NULL;
 	PROC pFunc = zd_wglGetProcAddress((LPCSTR)name);
-	if(TestPointer(pFunc))
+	if (TestPointer(pFunc))
 	{
 		return pFunc;
 	}
@@ -144,21 +141,23 @@ static PROC WinGetProcAddress(const char *name)
 }
 
 #define IntGetProcAddress(name) WinGetProcAddress(name)
-#else
-	#if defined(__APPLE__)
-		#define IntGetProcAddress(name) AppleGLGetProcAddress(name)
-	#else
-		#if defined(__sgi) || defined(__sun) || defined(__unix__) || defined(__HAIKU__)
-			void* SDL_GL_GetProcAddress(const char* proc);
-			#define IntGetProcAddress(name) SDL_GL_GetProcAddress((const char*)name)
-			//#define IntGetProcAddress(name) PosixGetProcAddress((const GLubyte*)name)
-/* END OF MANUAL CHANGES, DO NOT REMOVE! */
-		#else /* GLX */
-		    #include <GL/glx.h>
 
-			#define IntGetProcAddress(name) (*glXGetProcAddressARB)((const GLubyte*)name)
-		#endif
-	#endif
+// ==================================== Non-Windows Fallbacks ==========================================
+#else 
+#if defined(__APPLE__)
+#define IntGetProcAddress(name) AppleGLGetProcAddress(name)
+#else
+#if defined(__sgi) || defined(__sun) || defined(__unix__) || defined(__HAIKU__)
+void* SDL_GL_GetProcAddress(const char* proc);
+#define IntGetProcAddress(name) SDL_GL_GetProcAddress((const char*)name)
+//#define IntGetProcAddress(name) PosixGetProcAddress((const GLubyte*)name)
+/* END OF MANUAL CHANGES, DO NOT REMOVE! */
+#else /* GLX */
+#include <GL/glx.h>
+
+#define IntGetProcAddress(name) (*glXGetProcAddressARB)((const GLubyte*)name)
+#endif
+#endif
 #endif
 
 int ogl_ext_ARB_buffer_storage = ogl_LOAD_FAILED;
