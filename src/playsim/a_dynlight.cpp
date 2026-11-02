@@ -71,6 +71,8 @@ static FCRandom randLight;
 
 extern TArray<FLightDefaults *> StateLights;
 
+CVAR(Bool, gl_lights_checkside, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG);
+
 
 //==========================================================================
 //

@@ -20,7 +20,7 @@
 //--------------------------------------------------------------------------
 //
 /*
-** gl_scene.cpp
+** hw_entrypoint.cpp, former gl_scene.cpp
 ** manages the rendering of the player's view
 **
 */
@@ -51,6 +51,21 @@
 #include "hwrenderer/scene/hw_clipper.h"
 #include "hwrenderer/scene/hw_portal.h"
 #include "hw_vrmodes.h"
+
+#include "i_mainwindow.h"
+#include <WinGDI.h>
+#include "common/rendering/gl_load/gl_interface.h" // to get "if (gl.legacyMode) context
+#include "common/rendering/gl_load/gl_system.h"    // for GL commands
+#include "common/rendering/gl/gl_renderstate.h"
+
+#include <windows.h>
+#include <GL/gl.h>
+
+// [Darkcrafter07] - CRITICAL LINKER FORCE SHIELD!
+// Primes the MSVC compiler to natively inject the system OpenGL library binary,
+// completely extinguishing unresolved external symbols (__imp__wglMakeCurrent etc.)!
+#pragma comment(lib, "opengl32.lib")
+#pragma comment(lib, "gdi32.lib")
 
 EXTERN_CVAR(Bool, cl_capfps)
 extern bool NoInterpolateView;
@@ -106,6 +121,248 @@ void CollectLights(FLevelLocals* Level)
 
 sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen)
 {
+	if (gl.legacyMode)
+	{
+		return RenderViewpointGL1x(mainvp, camera, bounds, fov, ratio, fovratio, mainview, toscreen);
+	}
+	else
+	{
+		return RenderViewpointGL3x(mainvp, camera, bounds, fov, ratio, fovratio, mainview, toscreen);
+	}
+}
+
+//==========================================================================
+//
+// [Darkcrafter07] - RenderViewpointGL1x
+// Fully restored, independent legacy single-view frame manager for OpenGL 1.x.
+// Completely stripped of shadowmaps, SSBO buffers, and multi-threaded rendering traps.
+// Forces strict hardware device context activation via wglMakeCurrent to cure black screen!
+// Declared as a global member function inside (hw_entrypoint.cpp).
+//
+//==========================================================================
+//sector_t* RenderViewpointGL1x(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen)
+//{
+//	//glColor4f(1.0f, 0.0f, 1.0f, 1.0f);
+//	//glClearColor(1.0f, 0.0f, 1.0f, 1.0f); // Fill the entire buffer with solid magenta
+//	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+//
+//	// Force-inject active field of view degrees into the viewpoint structure cleanly
+//	mainvp.FieldOfView = DAngle::fromDeg(fov);
+//
+//	// Setup legacy software frame coordinates and angles interpolation offsets
+//	R_SetupFrame(mainvp, r_viewwindow, camera);
+//
+//	// Force calibrate viewport rectangles clipping boundaries natively straight from bounds token
+//	screen->SetViewportRects(bounds);
+//
+//	// ==============================================================================
+//	// [Darkcrafter07] - AUTONOMOUS WIN32 DEVICE CONTEXT LOCK (FIXED E020 / UNDEFINED)
+//	// ==============================================================================
+//	// Bypasses missing platform headers and Win32GLVideo types entirely!
+//	// Extracts the active Win32 window context and links thread handles on the fly.
+//	HWND hWndLegacy = mainwindow.GetHandle();
+//	if (hWndLegacy != NULL)
+//	{
+//		HDC hDCLegacy = GetDC(hWndLegacy);
+//
+//		// Natively query the live active rendering context directly from the GPU thread state
+//		HGLRC hRCLegacy = wglGetCurrentContext();
+//
+//		if (hDCLegacy != NULL && hRCLegacy != NULL)
+//		{
+//			// Force link the active rendering thread context straight into our legacy frame buffer!
+//			wglMakeCurrent(hDCLegacy, hRCLegacy);
+//		}
+//
+//		// Release early DC references safely to safeguard against system windows stalls
+//		ReleaseDC(hWndLegacy, hDCLegacy);
+//	}
+//
+//	// ==============================================================================
+//	// [Darkcrafter07] - THE MONOLITHIC FBO SHADER BUSTER CHANNEL!
+//	// ==============================================================================
+//	if (gl.legacyMode)
+//	{
+//		// 0x8D40 is the native hardware hex-code definition for GL_FRAMEBUFFER.
+//		typedef void (APIENTRY* PFNGLBINDFRAMEBUFFERPROC) (unsigned int target, unsigned int framebuffer);
+//		static PFNGLBINDFRAMEBUFFERPROC p_glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)wglGetProcAddress("glBindFramebuffer");
+//
+//		if (p_glBindFramebuffer != nullptr)
+//		{
+//			p_glBindFramebuffer(0x8D40, 0); // Hard-reset GPU pipeline back to the screen backbuffer!
+//		}
+//	}
+//
+//	// 1. HARDWARE OPENGL 1.1 ENVIRONMENT PREPARATION LOCK
+//	glDisable(GL_SCISSOR_TEST);
+//	glDepthMask(GL_TRUE);
+//	glEnable(GL_DEPTH_TEST);
+//
+//	// Unpacked the 4-component floating point array explicitly by its indices bounds
+//	glClearColor(screen->mSceneClearColor[0], screen->mSceneClearColor[1], screen->mSceneClearColor[2], 1.0f);
+//	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+//
+//	// 2. INSTANTIATE FIXED-FUNCTION SCENE CONTAINER DESCRIPTOR
+//	auto di = HWDrawInfo::StartDrawInfo(mainvp.ViewLevel, nullptr, mainvp, nullptr);
+//	if (di != nullptr)
+//	{
+//		// Capture the active stack-allocated frame pointer right on the spot!
+//		HWDrawInfo::CurrentGL1xInfo = di;
+//
+//		auto& vp = di->Viewpoint;
+//
+//		// Localize sector heightsec zones definitions for volumetric fog loops
+//		di->SetViewArea();
+//
+//		// Fire inventory colormaps solver (night vision, radsuits, screen flashes)
+//		if (mainview && vp.camera != nullptr && vp.camera->player != nullptr)
+//		{
+//			di->SetFixedColormapGL1x(vp.camera->player);
+//		}
+//		else
+//		{
+//			di->FullbrightFlagsLegacy = CM_DEFAULT;
+//			OpenGLRenderer::gl_RenderState.SetFixedGL1xColormap(CM_DEFAULT);
+//		}
+//
+//		// Recalculate Lighthouse3D gl1xViewMatrix transforms matrices on the spot
+//		di->SetViewMatrixGL1x((float)vp.Pos.X, (float)vp.Pos.Y, (float)vp.Pos.Z, false, false);
+//
+//		// 3. PUSH CALCULATED MATRIX STREAMS DIRECTLY TO THE VIDEO CARD REGISTERS
+//		glMatrixMode(GL_PROJECTION);
+//		glLoadIdentity();
+//		glLoadMatrixf((float*)&di->gl1xProjectionMatrix);
+//
+//		glMatrixMode(GL_MODELVIEW);
+//		glLoadIdentity();
+//		glLoadMatrixf((float*)&di->gl1xViewMatrix);
+//
+//		// 4. FIRE THE STANDALONE NON-CRASHING BSP RENDER ENGINE MONOLITH!
+//		// Direct route triggers: DrawSceneGL1x -> CreateGL1xScene -> RenderPolyBSPNodeGL1x!
+//		di->DrawSceneGL1x(mainview ? 1 : 2);
+//
+//		// Safe clearance before the pipeline destructor destroys the instance
+//		HWDrawInfo::CurrentGL1xInfo = nullptr;
+//
+//		// 5. DE-ALLOCATE CONTEXT BLOCK SAFELY TO PREVENT RAM LEAKS
+//		di->EndDrawInfo();
+//	}
+//
+//	// Safely return active camera sector container tracking pointer back to the engine loop
+//	return mainvp.sector;
+//}
+
+extern "C"
+{
+	HGLRC zd_wglCreateContext(HDC Arg1);
+	BOOL zd_wglDeleteContext(HGLRC Arg1);
+	BOOL zd_wglMakeCurrent(HDC Arg1, HGLRC Arg2);
+	PROC zd_wglGetProcAddress(LPCSTR name);
+}
+extern void* g_Legacy_hDC_Bridge;
+extern void* g_Legacy_hRC_Bridge;
+sector_t* RenderViewpointGL1x(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen)
+{
+	// Force-inject active field of view degrees into the viewpoint structure cleanly
+	mainvp.FieldOfView = DAngle::fromDeg(fov);
+
+	// Setup legacy software frame coordinates and angles interpolation offsets
+	R_SetupFrame(mainvp, r_viewwindow, camera);
+
+	// Force calibrate viewport rectangles clipping boundaries natively straight from bounds token
+	screen->SetViewportRects(bounds);
+
+	// ==============================================================================
+	// [Darkcrafter07] - THE ENGINE NATIVE zd_wgl CONTEXT BINDING ACTIVATOR LOCK
+	// ==============================================================================
+	// CRITICAL FIX: To prevent state desynchronization inside gl_load.c,
+	// we invoke the engine's internal zd_wglMakeCurrent instead of raw Win32 APIs!
+	if (g_Legacy_hDC_Bridge != nullptr && g_Legacy_hRC_Bridge != nullptr)
+	{
+		// This flawlessly synchronizes gl_load.c state trackers with the GPU context!
+		zd_wglMakeCurrent((HDC)g_Legacy_hDC_Bridge, (HGLRC)g_Legacy_hRC_Bridge);
+	}
+
+	// ==============================================================================
+	// [Darkcrafter07] - THE MONOLITHIC FBO SHADER BUSTER CHANNEL!
+	// ==============================================================================
+	if (gl.legacyMode)
+	{
+		typedef void (APIENTRY* PFNGLBINDFRAMEBUFFERPROC) (unsigned int target, unsigned int framebuffer);
+		static PFNGLBINDFRAMEBUFFERPROC p_glBindFramebuffer = nullptr;
+
+		if (p_glBindFramebuffer == nullptr)
+		{
+			// Natively resolve via the synced zd_ loader wrapper!
+			p_glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)zd_wglGetProcAddress("glBindFramebuffer");
+		}
+
+		if (p_glBindFramebuffer != nullptr)
+		{
+			p_glBindFramebuffer(0x8D40, 0); // 0x8D40 maps natively to GL_FRAMEBUFFER
+		}
+	}
+
+	// 1. HARDWARE OPENGL 1.1 ENVIRONMENT PREPARATION LOCK
+	glDisable(GL_SCISSOR_TEST);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+
+	// Unpacked the 4-component floating point array explicitly by its indices bounds
+	glClearColor(screen->mSceneClearColor[0], screen->mSceneClearColor[1], screen->mSceneClearColor[2], 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+	// 2. INSTANTIATE FIXED-FUNCTION SCENE CONTAINER DESCRIPTOR
+	auto di = HWDrawInfo::StartDrawInfo(mainvp.ViewLevel, nullptr, mainvp, nullptr);
+	if (di != nullptr)
+	{
+		// Capture the active stack-allocated frame pointer right on the spot!
+		HWDrawInfo::CurrentGL1xInfo = di;
+
+		auto& vp = di->Viewpoint;
+
+		// Localize sector heightsec zones definitions for volumetric fog loops
+		di->SetViewArea();
+
+		// Fire inventory colormaps solver (night vision, radsuits, screen flashes)
+		if (mainview && vp.camera != nullptr && vp.camera->player != nullptr)
+		{
+			di->SetFixedColormapGL1x(vp.camera->player);
+		}
+		else
+		{
+			di->FullbrightFlagsLegacy = CM_DEFAULT;
+			OpenGLRenderer::gl_RenderState.SetFixedGL1xColormap(CM_DEFAULT);
+		}
+
+		// Recalculate Lighthouse3D gl1xViewMatrix transforms matrices on the spot
+		di->SetViewMatrixGL1x((float)vp.Pos.X, (float)vp.Pos.Y, (float)vp.Pos.Z, false, false);
+
+		// 3. PUSH CALCULATED MATRIX STREAMS DIRECTLY TO THE VIDEO CARD REGISTERS
+		glMatrixMode(GL_PROJECTION);
+		glLoadIdentity();
+		glLoadMatrixf((float*)&di->gl1xProjectionMatrix);
+
+		glMatrixMode(GL_MODELVIEW);
+		glLoadIdentity();
+		glLoadMatrixf((float*)&di->gl1xViewMatrix);
+
+		// 4. FIRE THE STANDALONE NON-CRASHING BSP RENDER ENGINE MONOLITH!
+		di->DrawSceneGL1x(mainview ? 1 : 2);
+
+		// Safe clearance before the pipeline destructor destroys the instance
+		HWDrawInfo::CurrentGL1xInfo = nullptr;
+
+		// 5. DE-ALLOCATE CONTEXT BLOCK SAFELY TO PREVENT RAM LEAKS
+		di->EndDrawInfo();
+	}
+
+	// Safely return active camera sector container tracking pointer back to the engine loop
+	return mainvp.sector;
+}
+
+sector_t* RenderViewpointGL3x(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen)
+{
 	auto& RenderState = *screen->RenderState();
 
 	R_SetupFrame(mainvp, r_viewwindow, camera);
@@ -115,7 +372,7 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 		screen->SetAABBTree(camera->Level->aabbTree);
 		screen->mShadowMap.SetCollectLights([=] {
 			CollectLights(camera->Level);
-		});
+			});
 		screen->UpdateShadowMap();
 	}
 	else
@@ -165,7 +422,7 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 		// Stereo mode specific perspective projection
 		float inv_iso_dist = 1.0f;
 		bool iso_ortho = (camera->ViewPos != NULL) && (camera->ViewPos->Flags & VPSF_ORTHOGRAPHIC);
-		if (iso_ortho && (camera->ViewPos->Offset.Length() > 0)) inv_iso_dist = 1.0/camera->ViewPos->Offset.Length();
+		if (iso_ortho && (camera->ViewPos->Offset.Length() > 0)) inv_iso_dist = 1.0 / camera->ViewPos->Offset.Length();
 		di->VPUniforms.mProjectionMatrix = eye.GetProjection(fov, ratio, fovratio * inv_iso_dist, iso_ortho);
 		di->ProjectionMatrix2 = eye.GetProjection(fov, ratio, fovratio, false); // Regular ol' perspective projection matrix
 

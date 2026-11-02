@@ -20,7 +20,7 @@
 //--------------------------------------------------------------------------
 //
 /*
-** hw_renderstate.cpp
+** hw_setcolor.cpp – former hw_renderstate.cpp
 ** hardware independent part of render state.
 **
 */

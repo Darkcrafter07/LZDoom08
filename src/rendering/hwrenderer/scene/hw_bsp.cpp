@@ -20,7 +20,7 @@
 //--------------------------------------------------------------------------
 //
 /*
-** gl_bsp.cpp
+** hw_bsp.cpp, former gl_bsp.cpp
 ** Main rendering loop / BSP traversal / visibility clipping
 **
 **/
@@ -1098,3 +1098,239 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 	if (drawpsprites)
 		PreparePlayerSprites(Viewpoint.sector, in_area);
 }
+
+
+
+
+
+
+void HWDrawInfo::AddFlatGL1x(HWFlat* flat, bool fog)
+{
+	// Context guard protects pipeline from processing invalid flat memory blocks
+	if (flat == nullptr) return;
+
+	int list;
+	if (flat->renderstyle != STYLE_Translucent || flat->alpha < 1.f - FLT_EPSILON || fog || flat->texture == nullptr)
+	{
+		// Translucent 3D floors go into the translucent list channel layout
+		list = (flat->renderflags & 4) ? 6 : 7; // Mapped cleanly to GLDL_TRANSLUCENT / GLDL_TRANSLUCENTBORDER indices
+	}
+	else if (flat->texture->GetTranslucency())
+	{
+		if (flat->stack) list = 7; // GLDL_TRANSLUCENTBORDER
+		else if ((flat->renderflags & 4) && !flat->plane.plane.isSlope()) list = 6; // GLDL_TRANSLUCENT
+		else list = 1; // GLDL_PLAINFLATS
+	}
+	else
+	{
+		bool masked = flat->texture->isMasked() && ((flat->renderflags & 4) || flat->stack);
+		list = masked ? 3 : 1; // Mapped natively to GLDL_MASKEDFLATS / GLDL_PLAINFLATS indices
+	}
+
+	// Push straight into the protected legacy array slots via the native 4.14 memory manager
+	auto newflat = drawlists_legacy[list].NewFlat();
+	if (newflat != nullptr)
+	{
+		*newflat = *flat;
+	}
+}
+
+void HWDrawInfo::AddWallGL1x(HWWall* wall)
+{
+	if (wall == nullptr) return;
+
+	if (wall->flags & HWWall::HWF_TRANSLUCENT)
+	{
+		auto newwall = drawlists_legacy[6].NewWall(); // 6 maps to GLDL_TRANSLUCENT index
+		if (newwall != nullptr) *newwall = *wall;
+	}
+	else
+	{
+		bool masked = HWWall::passflag[wall->type] == 1 ? false : (wall->texture && wall->texture->isMasked());
+		int list;
+
+		if (wall->flags & HWWall::HWF_SKYHACK && wall->type == 3) // 3 maps to RENDERWALL_M2S
+		{
+			list = 4; // GLDL_MASKEDWALLSOFS index slot
+		}
+		else
+		{
+			list = masked ? 2 : 0; // Mapped cleanly to GLDL_MASKEDWALLS / GLDL_PLAINWALLS indices
+		}
+
+		auto newwall = drawlists_legacy[list].NewWall();
+		if (newwall != nullptr)
+		{
+			*newwall = *wall;
+		}
+	}
+}
+
+
+//==========================================================================
+//
+// Reconstructed single-threaded pure fixed-function BSP tree traversal node.
+// Bypasses modern multi-threaded jobs worker queues to guarantee safe array fills.
+// Declared as a native member of class HWDrawInfo (hw_drawinfo.cpp).
+//
+//==========================================================================
+void HWDrawInfo::RenderPolyBSPNodeGL1x(void* node)
+{
+	// Keep traversing the sub-tree nodes branches until we hit a leaf subsector index
+	while (!((size_t)node & 1))
+	{
+		node_t* bsp = (node_t*)node;
+
+		// [Darkcrafter07] - Leverage our cached pure floating-point view coordinates fields!
+		int side = R_PointOnSide(gl1xViewX, gl1xViewY, bsp);
+
+		// Recursively divide front space (nearest sectors facing towards the viewer)
+		RenderPolyBSPNodeGL1x(bsp->children[side]);
+
+		// Possibly divide back space (sectors away from the viewer) if visible through clipper
+		side ^= 1;
+
+		// Setup local stack container clipper exactly matching our CreateGL1xScene context
+		Clipper legacyClipper;
+		legacyClipper.SetViewpoint(Viewpoint);
+
+		if (legacyClipper.CheckBox(bsp->bbox[side]))
+		{
+			return; // Sub-tree is completely blocked out by clipper, discard execution early!
+		}
+
+		node = bsp->children[side];
+	}
+
+	// Leaf subsector reached! Extract subsector pointer index securely
+	subsector_t* sub = (subsector_t*)((uint8_t*)node - 1);
+	if (sub != nullptr)
+	{
+		PolySubsectorGL1x(sub);
+	}
+}
+
+//==========================================================================
+//
+// Generates walls and flats primitives from the current visible subsector leaf.
+// Fully replicates old gl_bsp.cpp processing behaviors inside 4.14dev.
+//
+//==========================================================================
+void HWDrawInfo::PolySubsectorGL1x(subsector_t* sub)
+{
+	if (sub == nullptr || sub->sector == nullptr) return;
+
+	sector_t* sector = sub->sector;
+
+	// Skip processing subsectors if out of visibility sections matrix bounds
+	if (currentmapsection_legacy.Size() > 0)
+	{
+		if (!(currentmapsection_legacy[sub->mapsection >> 3] & (1 << (sub->mapsection & 7)))) return;
+	}
+
+	// Force cast integer area token to strict area_t enumeration
+	sector_t* fakesector = hw_FakeFlat(sector, static_cast<area_t>(in_area_legacy), false);
+	if (fakesector == nullptr) fakesector = sector;
+
+	if (sector->validcount != validcount)
+	{
+		// Force update sector markers index registries
+		sector->validcount = validcount;
+		sector->MoreFlags |= SECMF_DRAWN;
+
+		// 1. POPULATE FLATS DRAW LISTS (FLOORS & CEILINGS GEOMETRY)
+		if (gl_render_flats)
+		{
+			// Enforced aggregate initializer initialization to zero out all internal memory variables!
+			HWFlat floorFlat{};
+
+			floorFlat.sector = sector;
+
+			// [Darkcrafter07] - FIXED E0042 & E0349! 
+			// In 4.14dev sub->section is already a native pointer of type FSection*!
+			// We can directly pass the pointer address without heavy index arrays tracking!
+			floorFlat.section = sub->section;
+
+			floorFlat.texture = nullptr; // Fallback default texture pass
+			floorFlat.TextureFx = nullptr;
+			floorFlat.renderflags = 0;
+			floorFlat.hacktype = 0;
+
+			floorFlat.stack = false;
+			floorFlat.renderstyle = STYLE_Source;
+			floorFlat.alpha = 1.0f;
+
+			// Re-mapped to unified 4.14dev Colormap member signature
+			bool requiresFogPass = (in_area_legacy != 0 || fakesector->Colormap.FadeColor != 0);
+
+			// Rerouted from drawlists to the native 4.14dev HWDrawInfo::AddFlat method 
+			// which automatically sorts items into correct list buffers!
+			// can either be regular AddFlat, I think black screen is about screen init not geometry
+			this->AddFlatGL1x(&floorFlat, requiresFogPass);
+		}
+
+		// 2. POPULATE WALLS DRAW LISTS (SEGMENTS LINES)
+		this->AddLinesGL1x(sub, fakesector);
+	}
+}
+
+//==========================================================================
+//
+// Scans subsector segments lines and builds valid HWWall descriptors instances.
+// Fully secures linear memory layout mapping to eliminate 0xC0000005 stalls!
+//
+//==========================================================================
+void HWDrawInfo::AddLinesGL1x(subsector_t* sub, sector_t* sector)
+{
+	if (sub == nullptr) return;
+
+	int count = sub->numlines;
+	seg_t* line = sub->firstline;
+
+	while (count--)
+	{
+		if (line != nullptr && line->linedef != nullptr && line->sidedef != nullptr)
+		{
+			// [Darkcrafter07] - FIXED LOCAL VAR NOT INITIALIZED!
+			// Aggregate bracket initialization cleanly zeroes out all tracking flags!
+			HWWall legacyWall{};
+
+			legacyWall.sub = sub;
+			legacyWall.seg = line;
+			legacyWall.texture = nullptr;
+			legacyWall.type = 1; // RENDERWALL_TOP standard default baseline fallback
+
+			// Accessed the lowercase 4.14dev alpha member field natively
+			legacyWall.alpha = (float)line->sidedef->alpha;
+			legacyWall.flags = 0;
+			legacyWall.RenderStyle = STYLE_Source;
+
+			// Re-routed from side_t straight into the native seg_t backsector pointer slot
+			if (line->backsector == nullptr)
+			{
+				// One-sided solid wall sheet allocation pipeline loop
+				// can either be regular AddWall, I think black screen is about screen init not geometry
+				this->AddWallGL1x(&legacyWall);
+			}
+			else
+			{
+				// Two-sided masked window, bars, or tier partition gaps
+				// [Darkcrafter07] - FIXED UNDEFINED! Swapped with the legal HWWall bitmask token!
+				if (line->sidedef->Flags & HWWall::HWF_TRANSLUCENT)
+				{
+					legacyWall.flags |= HWWall::HWF_TRANSLUCENT;
+					// can either be regular AddWall, I think black screen is about screen init not geometry
+					this->AddWallGL1x(&legacyWall);
+				}
+				else
+				{
+					// can either be regular AddWall, I think black screen is about screen init not geometry
+					this->AddWallGL1x(&legacyWall);
+				}
+			}
+		}
+		line++;
+	}
+}
+
+

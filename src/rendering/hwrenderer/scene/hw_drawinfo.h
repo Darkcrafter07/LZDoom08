@@ -1,3 +1,4 @@
+// hw_drawinfo.h
 #pragma once
 
 #include <atomic>
@@ -87,13 +88,71 @@ enum DrawListType
 	GLDL_MASKEDWALLS,
 	GLDL_MASKEDFLATS,
 	GLDL_MASKEDWALLSOFS,
+
 	GLDL_MODELS,
 
 	GLDL_TRANSLUCENT,
 	GLDL_TRANSLUCENTBORDER,
 
 	GLDL_TYPES,
+
+	// GL1x/GL2x additional types
+	GLDL_FOGWALLS,
+	GLDL_FOGMASKEDWALLS,
+	GLDL_FOGFLATS,
+	GLDL_FOGMASKEDFLATS,
+
+	GLDL_NUM_LISTS
 };
+
+// GL1x/GL2x lists to handle dynamic lighting
+enum DLDrawListType
+{
+	// These are organized so that the various multipass rendering modes have to be set as few times as possible
+	GLLDL_WALLS_PLAIN,			// dynamic lights on normal walls
+	GLLDL_WALLS_MASKED,			// dynamic lights on masked midtextures
+
+	GLLDL_FLATS_PLAIN,			// dynamic lights on normal flats
+	GLLDL_FLATS_MASKED,			// dynamic lights on masked flats
+
+	GLLDL_WALLS_FOG,			// lights on fogged walls
+	GLLDL_WALLS_FOGMASKED,		// lights on fogged masked midtextures
+
+	GLLDL_FLATS_FOG,			// lights on fogged walls
+	GLLDL_FLATS_FOGMASKED,		// lights on fogged masked midtextures
+
+	GLLDL_WALLS_SHADOW,
+
+	GLLDL_TYPES,
+};
+
+// GL1x/GL2x draw passes:
+enum Drawpasses
+{
+	GLPASS_ALL,			// Main pass with dynamic lights
+	GLPASS_LIGHTSONLY,	// only collect dynamic lights
+	GLPASS_PLAIN,		// Main pass without dynamic lights
+	GLPASS_DECALS,		// Draws a decal
+	GLPASS_TRANSLUCENT,	// Draws translucent objects
+
+	// these are only used with texture based dynamic lights
+	GLPASS_BASE,		// untextured base for dynamic lights
+	GLPASS_BASE_MASKED,	// same but with active texture
+	GLPASS_LIGHTTEX,	// lighttexture pass
+	GLPASS_TEXONLY,		// finishing texture pass
+	GLPASS_LIGHTTEX_ADDITIVE,	// lighttexture pass (additive)
+	GLPASS_LIGHTTEX_FOGGY,	// lighttexture pass on foggy surfaces (forces all lights to be additive)
+	GLPASS_FOGBOUNDARY,    // Apply fog to dynamically lit surfaces
+
+	// GL1x/GL2x dynamic light for regular surfaces but coupled with the transluscent ones (7th multipass pass)
+	GLPASS_TRANSLUCENT_LIGHTTEX,
+
+	GLPASS_LIGHTTEX_OVERBRIGHT1_LEGACY,	// GL1x/GL2x dynamic lights overbright 2nd pass, disabled in gl_scene.cpp
+	GLPASS_LIGHTTEX_OVERBRIGHT2_LEGACY,	// GL1x/GL2x dynamic lights overbright 7th pass, ENABLED in gl_20.cpp RenderMultipassStuff
+	GLPASS_LIGHTEFFECTS_LEGACY, // GL1x/GL2x legacy brightmap simulation effect
+
+};
+
 
 
 struct HWDrawInfo
@@ -326,10 +385,60 @@ public:
 		lightmode = ELightMode::Doom;
 	}
 
+	// GL1x/GL2x drawing heart
+	TArray<uint8_t> currentmapsection_legacy;  // Core byte-tracking registry for BSP nodes culling
+	int FullbrightFlagsLegacy = 0;             // Legacy alternative to FullbrightFlags
+	int in_area_legacy = 0;                    // Tracks camera area (0: normal, 1: above, 2: below)
+
+	// Isolated Fixed-Function Scene Pipeline Emulation methods
+	
+	// Drawlists array matrix - shields GL1x polygons from modern shader thread clear/reset traps
+	// Shields GL1x/GL2x polygons cleanly from modern multi-threaded shader clear/reset traps.
+	// Hardcoded to exactly 13 primary slots to bypass enum scoping compilation stalls.
+	HWDrawList drawlists_legacy[13];
+	void AddFlatGL1x(HWFlat* flat, bool fog);
+	void AddWallGL1x(HWWall* wall);
+
+	void RenderPolyBSPNodeGL1x(void* node);
+	void PolySubsectorGL1x(subsector_t* sub);
+	void AddLinesGL1x(subsector_t* sub, sector_t* sector);
+
+	angle_t FrustumAngleGL1x();
+	void SetViewAreaGL1x();
+	void Set3DViewportGL1x(bool mainview);
+	void SetViewAngleGL1x(DAngle viewangle);
+
+	VSMatrix gl1xProjectionMatrix;
+	VSMatrix gl1xViewMatrix;
+	void SetViewMatrixGL1x(float vx, float vy, float vz, bool mirror, bool planemirror);
+	void SetupViewGL1x(float vx, float vy, float vz, DAngle va, bool mirror, bool planemirror);
+
+	float gl1xViewX = 0.0f;
+	float gl1xViewY = 0.0f;
+	void CreateGL1xScene();
+
+	void DrawSceneGL1x(int drawmode);
+	void RenderTextureViewGL1x(FCanvasTexture* tex, AActor* viewpoint, double fov);
+	void RenderSceneGL1x(int recursion);
+	void RenderTranslucentGL1x();
+	void EndDrawSceneGL1x(sector_t* viewsector);
+	void FillScreenGL1x();
+	void SetFixedColormapGL1x(player_t* player);
+	void DrawTargeterSpritesGL1x();
+	void DrawEndScene2DGL1x(sector_t* viewsector);
+
+	static HWDrawInfo* CurrentGL1xInfo; // static context bridge for d_main loop
+	void SubmitGL1xFrame(); // encapsulated framework bridge to submit and flip pages seamlessly
+
+	void RenderMultipassStuff();
+	void DrawGL1xColormapOverlay(sector_t* viewsector);
+
 };
 
 void CleanSWDrawer();
 sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen);
+sector_t* RenderViewpointGL1x(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen);
+sector_t* RenderViewpointGL3x(FRenderViewpoint& mainvp, AActor* camera, IntRect* bounds, float fov, float ratio, float fovratio, bool mainview, bool toscreen);
 void WriteSavePic(player_t* player, FileWriter* file, int width, int height);
 sector_t* RenderView(player_t* player);
 

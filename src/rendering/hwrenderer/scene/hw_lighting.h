@@ -1,3 +1,5 @@
+// hw_lighting.h
+// former gl_lightdata.h
 #pragma once
 
 #include "c_cvars.h"

@@ -45,6 +45,11 @@
 #include "hw_skydome.h"
 #include "hw_walldispatcher.h"
 
+#include "common/rendering/gl_load/gl_system.h"
+#include "common/rendering/gl_load/gl_interface.h"
+
+HWWall* g_isCurrentlyHWWallDrawing = nullptr; // mainly for GL1x/GL2x modes (externed in gl_20.cpp)
+
 
 void SetGlowPlanes(FRenderState &state, const secplane_t& top, const secplane_t& bottom)
 {
@@ -121,10 +126,16 @@ void HWWall::RenderWall(FRenderState &state, int textured)
 //
 //==========================================================================
 
-void HWWall::RenderFogBoundary(HWWallDispatcher*di, FRenderState &state)
+void HWWall::RenderFogBoundary(HWWallDispatcher* di, FRenderState& state)
 {
 	if (gl_fogmode && !di->isFullbrightScene())
 	{
+		if (gl.legacyMode)
+		{
+			RenderFogBoundaryCompat(di->di);
+			return; // Safe exit to completely bypass standard core shader state mutations!
+		}
+
 		int rel = rellight + getExtraLight();
 		state.EnableDrawBufferAttachments(false);
 		SetFog(state, di->Level, di->lightmode, lightlevel, rel, false, &Colormap, false);
@@ -206,63 +217,86 @@ static const uint8_t renderwalltotier[] =
 CVAR(Bool, hw_npottest, false, 0)
 #endif
 
-void HWWall::RenderTexturedWall(HWWallDispatcher*di, FRenderState &state, int rflags)
+void HWWall::RenderTexturedWall(HWWallDispatcher* di, FRenderState& state, int rflags)
 {
 	int tmode = state.GetTextureMode();
 	int rel = rellight + getExtraLight();
 
-	if (flags & HWWall::HWF_GLOW)
+	// [Darkcrafter07] - CRITICAL NULLPTR SHIELD! 
+	// If frontsector is missing, completely skip glow planes configuration to block memory corruptions!
+	if (frontsector != nullptr && (flags & HWWall::HWF_GLOW))
 	{
 		state.EnableGlow(true);
 		state.SetGlowParams(topglowcolor, bottomglowcolor);
 		SetGlowPlanes(state, frontsector->ceilingplane, frontsector->floorplane);
 	}
-	state.SetMaterial(texture, UF_Texture, 0, flags & 3, NO_TRANSLATION, -1);
-#ifdef NPOT_EMULATION
-	// Test code, could be reactivated as a compatibility option in the unlikely event that some old vanilla map eve needs it.
-	if (hw_npottest)
+
+	// Wraps texture binding and warping logic inside explicit legacy mode guards
+	bool skipTextureBlocks = false;
+	if (gl.legacyMode && texture == nullptr)
 	{
-		int32_t size = xs_CRoundToInt(texture->GetDisplayHeight());
-		int32_t size2;
-		for (size2 = 1; size2 < size; size2 += size2) {}
-		if (size == size2)
-			state.SetNpotEmulation(0.f, 0.f);
-		else
-		{
-			float xOffset = 1.f / texture->GetDisplayWidth();
-			state.SetNpotEmulation((1.f * size2) / size, xOffset);
-		}
+		skipTextureBlocks = true;
 	}
+
+	if (!skipTextureBlocks)
+	{
+		state.SetMaterial(texture, UF_Texture, 0, flags & 3, NO_TRANSLATION, -1);
+#ifdef NPOT_EMULATION
+		if (hw_npottest)
+		{
+			int32_t size = xs_CRoundToInt(texture->GetDisplayHeight());
+			int32_t size2;
+			for (size2 = 1; size2 < size; size2 += size2) {}
+			if (size == size2)
+				state.SetNpotEmulation(0.f, 0.f);
+			else
+			{
+				float xOffset = 1.f / texture->GetDisplayWidth();
+				state.SetNpotEmulation((1.f * size2) / size, xOffset);
+			}
+		}
 #endif
 
-	if (flags & HWWall::HWF_CLAMPY && (type == RENDERWALL_M2S || type == RENDERWALL_M2SNF) && !texture->isWarped())
+		if (flags & HWWall::HWF_CLAMPY && (type == RENDERWALL_M2S || type == RENDERWALL_M2SNF) && !texture->isWarped())
+		{
+			state.SetTextureClamp(true);
+		}
+	}
+	else
 	{
-		state.SetTextureClamp(true);
+		state.EnableTexture(false);
 	}
 
 	if (type == RENDERWALL_M2SNF)
 	{
 		SetFog(state, di->Level, di->lightmode, 255, 0, di->isFullbrightScene(), nullptr, false);
 	}
-	if (type != RENDERWALL_COLOR && seg->sidedef != nullptr)
+
+	// [Darkcrafter07] - EXTENDED FRONTSECTOR SAFETY LOCK ENVIRONMENT
+	// If frontsector is invalid or empty, we strictly bypass colors evaluation to stop 0x00000184 reads!
+	if (frontsector != nullptr && type != RENDERWALL_COLOR && seg != nullptr && seg->sidedef != nullptr)
 	{
 		auto side = seg->sidedef;
-		if (seg->sidedef->Flags & WALLF_EXTCOLOR) // this block incurs a costly cache miss, so only process if needed.
+		if (side->Flags & WALLF_EXTCOLOR) // this block incurs a costly cache miss, so only process if needed.
 		{
-
 			auto tierndx = renderwalltotier[type];
 			auto& tier = side->textures[tierndx];
+
+			// Safe evaluation of special Doom64 wall gradient colors
 			PalEntry color1 = side->GetSpecialColor(tierndx, side_t::walltop, frontsector);
 			PalEntry color2 = side->GetSpecialColor(tierndx, side_t::wallbottom, frontsector);
+
 			state.SetObjectColor(color1);
 			state.SetObjectColor2((color1 != color2) ? color2 : PalEntry(0));
 			state.SetAddColor(side->GetAdditiveColor(tierndx, frontsector));
-			state.ApplyTextureManipulation(&tier.TextureFx);
+
+			if (!skipTextureBlocks)
+			{
+				state.ApplyTextureManipulation(&tier.TextureFx);
+			}
 
 			if (color1 != color2)
 			{
-				// Do gradient setup only if there actually is a gradient.
-
 				state.EnableGradient(true);
 				if ((tier.flags & side_t::part::ClampGradient) && backsector)
 				{
@@ -286,6 +320,13 @@ void HWWall::RenderTexturedWall(HWWallDispatcher*di, FRenderState &state, int rf
 			}
 		}
 	}
+	else
+	{
+		// Safe fallback color if frontsector context is temporarily corrupted
+		state.SetObjectColor(PalEntry(255, 255, 255));
+		state.SetObjectColor2(PalEntry(0));
+		state.SetAddColor(0);
+	}
 
 	float absalpha = fabsf(alpha);
 	if (lightlist == nullptr)
@@ -298,30 +339,33 @@ void HWWall::RenderTexturedWall(HWWallDispatcher*di, FRenderState &state, int rf
 	{
 		state.EnableSplit(true);
 
-		for (unsigned i = 0; i < lightlist->Size(); i++)
+		if (frontsector != nullptr)
 		{
-			secplane_t &lowplane = i == (*lightlist).Size() - 1 ? frontsector->floorplane : (*lightlist)[i + 1].plane;
-			// this must use the exact same calculation method as HWWall::Process etc.
-			float low1 = lowplane.ZatPoint(vertexes[0]);
-			float low2 = lowplane.ZatPoint(vertexes[1]);
-
-			if (low1 < ztop[0] || low2 < ztop[1])
+			for (unsigned i = 0; i < lightlist->Size(); i++)
 			{
-				int thisll = (*lightlist)[i].caster != nullptr ? hw_ClampLight(*(*lightlist)[i].p_lightlevel) : lightlevel;
-				FColormap thiscm;
-				thiscm.FadeColor = Colormap.FadeColor;
-				thiscm.FogDensity = Colormap.FogDensity;
-				CopyFrom3DLight(thiscm, &(*lightlist)[i]);
-				SetColor(state, di->Level, di->lightmode, thisll, rel, false, thiscm, absalpha);
-				if (type != RENDERWALL_M2SNF) SetFog(state, di->Level, di->lightmode, thisll, rel, false, &thiscm, RenderStyle == STYLE_Add);
-				SetSplitPlanes(state, (*lightlist)[i].plane, lowplane);
-				RenderWall(state, rflags);
+				secplane_t& lowplane = i == (*lightlist).Size() - 1 ? frontsector->floorplane : (*lightlist)[i + 1].plane;
+				float low1 = lowplane.ZatPoint(vertexes[0]);
+				float low2 = lowplane.ZatPoint(vertexes[1]);
+
+				if (low1 < ztop[0] || low2 < ztop[1])
+				{
+					int thisll = (*lightlist)[i].caster != nullptr ? hw_ClampLight(*(*lightlist)[i].p_lightlevel) : lightlevel;
+					FColormap thiscm;
+					thiscm.FadeColor = Colormap.FadeColor;
+					thiscm.FogDensity = Colormap.FogDensity;
+					CopyFrom3DLight(thiscm, &(*lightlist)[i]);
+					SetColor(state, di->Level, di->lightmode, thisll, rel, false, thiscm, absalpha);
+					if (type != RENDERWALL_M2SNF) SetFog(state, di->Level, di->lightmode, thisll, rel, false, &thiscm, RenderStyle == STYLE_Add);
+					SetSplitPlanes(state, (*lightlist)[i].plane, lowplane);
+					RenderWall(state, rflags);
+				}
+				if (low1 <= zbottom[0] && low2 <= zbottom[1]) break;
 			}
-			if (low1 <= zbottom[0] && low2 <= zbottom[1]) break;
 		}
 
 		state.EnableSplit(false);
 	}
+
 	state.SetNpotEmulation(0.f, 0.f);
 	state.SetObjectColor(0xffffffff);
 	state.SetObjectColor2(0);
@@ -367,6 +411,8 @@ void HWWall::RenderTranslucentWall(HWWallDispatcher*di, FRenderState &state)
 //==========================================================================
 void HWWall::DrawWall(HWWallDispatcher*di, FRenderState &state, bool translucent)
 {
+	g_isCurrentlyHWWallDrawing = this; // we're drawing walls now
+
 	if (screen->BuffersArePersistent())
 	{
 		if (di->di && di->Level->HasDynamicLights && !di->isFullbrightScene() && texture != nullptr)
@@ -398,6 +444,653 @@ void HWWall::DrawWall(HWWallDispatcher*di, FRenderState &state, bool translucent
 			break;
 		}
 	}
+
+	g_isCurrentlyHWWallDrawing = nullptr; // we're not drawing walls anymore
+}
+
+//==========================================================================
+//
+// 
+//
+//==========================================================================
+void HWWall::DrawGL1xWallImplementation(HWWallDispatcher* dispatcher, HWDrawInfo* di, FRenderState& state, int pass)
+{
+	float absalpha = 1.0f;
+	const float invMul255 = 1.0f / 255.0f;
+
+	g_isCurrentlyHWWallDrawing = this; // we're drawing walls now
+
+	state.SetDepthFunc(DF_Less);
+	state.SetNormal(glseg.Normal());
+
+	switch (pass)
+	{
+	case GLPASS_LIGHTSONLY:
+		if (di && di->Level->HasDynamicLights && texture != nullptr)
+		{
+			SetupLights(di, lightdata);
+		}
+		break;
+
+	case GLPASS_ALL:
+		if (di && di->Level->HasDynamicLights && texture != nullptr)
+		{
+			SetupLights(di, lightdata);
+		}
+		// fall through
+	case GLPASS_PLAIN:
+		state.EnableTexture(false);
+		state.EnableBrightmap(false);
+		absalpha = fabsf(alpha);
+		SetColor(state, di->Level, di->lightmode, lightlevel, rellight + getExtraLight(), di->isFullbrightScene(), Colormap, absalpha);
+		RenderWall(state, HWWall::RWF_TEXTURED);
+		break;
+
+	case GLPASS_TRANSLUCENT:
+	{
+		int backupLight = lightlevel;
+
+		if (gl.legacyMode && seg && seg->frontsector)
+		{
+			if (lightlevel < 100) lightlevel = 100;
+		}
+
+		switch (type)
+		{
+		case RENDERWALL_MIRRORSURFACE:
+			RenderMirrorSurface(dispatcher, state);
+			break;
+
+		case RENDERWALL_FOGBOUNDARY:
+			RenderFogBoundaryCompat(di);
+			break;
+
+		default:
+			RenderTranslucentWall(dispatcher, state);
+			break;
+		}
+
+		lightlevel = backupLight;
+		break;
+	}
+
+	case GLPASS_LIGHTTEX:
+	case GLPASS_LIGHTTEX_ADDITIVE:
+	case GLPASS_LIGHTTEX_FOGGY:
+	case GLPASS_TRANSLUCENT_LIGHTTEX:
+		RenderLightsCompat(di, state, pass);
+		break;
+
+	case GLPASS_TEXONLY:
+	{
+		if (gl.legacyMode) // GL1x/GL2x way
+		{
+			auto side = seg ? seg->sidedef : nullptr;
+			auto tierndx = renderwalltotier[type];
+
+			// [Darkcrafter07] - THE ULTIMATE FRONTSECTOR BACKUP GUARD LAYER!
+			// If the local wall's frontsector tracker is nullptr, we dynamically fallback 
+			// to the segment's native frontsector pointer to permanently smash 0x00000184 crashes!
+			sector_t* safeSector = frontsector;
+			if (safeSector == nullptr && seg != nullptr)
+			{
+				safeSector = seg->frontsector;
+			}
+
+			PalEntry color1 = PalEntry(255, 255, 255);
+			PalEntry color2 = PalEntry(255, 255, 255);
+
+			// Execute GetSpecialColor only if BOTH sidedef and frontsector contexts are 100% verified!
+			if (side != nullptr && safeSector != nullptr)
+			{
+				color1 = side->GetSpecialColor(tierndx, side_t::walltop, safeSector);
+				color2 = side->GetSpecialColor(tierndx, side_t::wallbottom, safeSector);
+
+				state.SetObjectColor(color1);
+				state.SetObjectColor2((color1 != color2) ? color2 : PalEntry(0));
+			}
+			else
+			{
+				// High-fidelity factory safety defaults if context gets temporarily corrupted
+				state.SetObjectColor(PalEntry(255, 255, 255));
+				state.SetObjectColor2(PalEntry(0));
+			}
+
+			// // --- Detect Doom64 gradient lit walls in the sector ---
+			bool hasDoom64Gradient = (side != nullptr && color1 != color2 && (color1 != PalEntry(255, 255, 255) || color2 != PalEntry(255, 255, 255)));
+
+			if (hasDoom64Gradient)
+			{
+				// Enforce discrete multiplicative blending for hardware Gouraud shading engine
+				state.BlendGL1xFunc(GL_DST_COLOR, GL_ZERO);
+
+				// Resolve material from the native HWWall texture object
+				FMaterial* wallMat = FMaterial::ValidateTexture(texture, 0); // 0 for clean default scaleflags
+
+				if (wallMat != nullptr)
+				{
+					// [Darkcrafter07] - Pass flags & 3 cleanly matching the 4.14dev clampmode matrix tracks
+					state.SetGL1xMaterial(wallMat, flags & 3, 0, -1, false);
+				}
+				state.ApplyFixedGL1xFunction(nullptr);
+
+				// Enforce pixel depth matching to protect multi-pass layout sync
+				glDepthFunc(GL_EQUAL);
+				glDepthMask(false);
+				glShadeModel(GL_SMOOTH); // Hard-lock smooth vertex interpolation!
+
+				float r1 = color1.r * invMul255; float g1 = color1.g * invMul255; float b1 = color1.b * invMul255;
+				float r2 = color2.r * invMul255; float g2 = color2.g * invMul255; float b2 = color2.b * invMul255;
+
+				// Reset counter to safely compile the exact same seamless VBO mesh nodes for this pass
+				vertcount = 0;
+				MakeVertices(false);
+
+				glBegin(GL_QUADS);
+				for (int i = 0; i < vertcount; i++)
+				{
+					float vx = glseg.x1 + (glseg.x2 - glseg.x1) * (float)i / (float)vertcount;
+					float vz = ztop[0] + (ztop[1] - ztop[0]) * (float)i / (float)vertcount; // Fixed track indices
+					float vy = glseg.y1 + (glseg.y2 - glseg.y1) * (float)i / (float)vertcount;
+
+					// // --- Slope Interpolation ---
+					float horizontalFactor = 0.0f;
+					float wallLengthX = glseg.x2 - glseg.x1;
+					float wallLengthY = glseg.y2 - glseg.y1;
+					float totalWallLengthSq = (wallLengthX * wallLengthX) + (wallLengthY * wallLengthY);
+
+					if (totalWallLengthSq > 0.0f)
+					{
+						horizontalFactor = ((vx - glseg.x1) * wallLengthX + (vy - glseg.y1) * wallLengthY) / totalWallLengthSq;
+						if (horizontalFactor > 1.0f) horizontalFactor = 1.0f;
+						if (horizontalFactor < 0.0f) horizontalFactor = 0.0f;
+					}
+
+					// // Linearly calculate the exact floor and ceiling boundaries at the current vertex position
+					float currentWallBottom = zbottom[0] + (zbottom[1] - zbottom[0]) * horizontalFactor;
+					float currentWallTop = ztop[0] + (ztop[1] - ztop[0]) * horizontalFactor;
+
+					float heightFactor = 0.0f;
+					float totalHeight = currentWallTop - currentWallBottom;
+					if (totalHeight > 0.0f)
+					{
+						heightFactor = (vz - currentWallBottom) / totalHeight;
+						if (heightFactor > 1.0f) heightFactor = 1.0f;
+						if (heightFactor < 0.0f) heightFactor = 0.0f;
+					}
+
+					// // Blend colors safely between bottom (color2) and top (color1) bounds
+					float r = r2 + (r1 - r2) * heightFactor;
+					float g = g2 + (g1 - g2) * heightFactor;
+					float b = b2 + (b1 - b2) * heightFactor;
+
+					glTexCoord2f(tcs[i].u, tcs[i].v);
+					glColor4f(r, g, b, 1.0f);
+					glVertex3f(vx, vz, vy);
+				}
+				glEnd();
+
+				// Hardware registry recovery reset
+				glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+			}
+			else
+			{
+				// // Regular walls without Doom64 sector gradient lighting
+				FMaterial* wallMat = FMaterial::ValidateTexture(texture, 0);
+				if (wallMat != nullptr)
+				{
+					state.SetGL1xMaterial(wallMat, flags & 3, 0, -1, false);
+				}
+				state.ApplyFixedGL1xFunction(nullptr);
+
+				// Direct zero-overhead hardware vertex array rendering pass!
+				glDrawArrays(GL_TRIANGLE_FAN, vertindex, vertcount);
+			}
+		}
+		else // // GL3+ way
+		{
+			RenderTexturedWall(dispatcher, state, HWWall::RWF_TEXTURED);
+		}
+		break;
+	}
+	case GLPASS_LIGHTTEX_OVERBRIGHT1_LEGACY: // DISABLED AND UNUSED BUT CAN SHOW HOW TO DO IT ALTERNATIVELY (in hw_drawinfo.cpp)
+	{
+		if (seg->sidedef != nullptr && seg->v1 != nullptr && seg->v2 != nullptr)
+		{
+			// Define local viewport culling radius bubble for open-space landscape sectors
+			float cullDist = 16000.0f;
+			if (cullDist > 0.0f)
+			{
+				float maxAllowedDistSq = cullDist * cullDist;
+
+				// Calculate squared distance from camera viewpoint to both vertices of the current wall segment
+				float dist1 = (float)(seg->v1->fPos() - r_viewpoint.Pos).LengthSquared();
+				float dist2 = (float)(seg->v2->fPos() - r_viewpoint.Pos).LengthSquared();
+
+				// If both vertices escape the culling bubble, skip the entire heavy overbright pass
+				if (dist1 > maxAllowedDistSq && dist2 > maxAllowedDistSq)
+				{
+					break;
+				}
+			}
+
+			state.BlendGL1xFunc(GL_DST_COLOR, GL_ONE);
+			glDepthFunc(GL_EQUAL);
+			glDepthMask(false);
+
+			FMaterial* wallMat = FMaterial::ValidateTexture(texture, 0);
+			if (wallMat != nullptr)
+			{
+				state.SetGL1xMaterial(wallMat, CLAMP_NONE, 0, -1, false);
+			}
+
+			FLightNode* node = (seg->sidedef->Flags & WALLF_POLYOBJ) ? seg->sidedef->lighthead : (sub ? sub->section->lighthead : nullptr);
+			if (node == nullptr)
+			{
+				break;
+			}
+
+			texcoord save[4];
+			memcpy(save, tcs, sizeof(tcs)); // Save original wall coordinates
+
+			float baseFactor = clamp((float)gl_legacy_dynlight_overbright_walls, 0.0f, 0.2f);
+			float passIntensityMultiplier = 1.5f;
+
+			// Re-sync with structural cachers mapping fields
+			float x1 = (float)glseg.x1; float y1 = (float)glseg.y1;
+			float x2 = (float)glseg.x2; float y2 = (float)glseg.y2;
+			float zb0 = (float)zbottom[0]; float zt0 = (float)ztop[0];
+			float zt1 = (float)ztop[1]; float zb1 = (float)zbottom[1];
+
+			while (node)
+			{
+				FDynamicLight* light = node->lightsource;
+				if (light && light->IsActive() && light->GetRadius() > 0.0f)
+				{
+					state.EnableFog(false);
+					state.BlendGL1xEquation(GL_FUNC_ADD);
+
+					float radius = light->GetRadius();
+					float radiusSq = radius * radius;
+					float lx = (float)light->X();
+					float ly = (float)light->Y();
+					float lz = (float)light->Z();
+
+					float vtx[] = { x1, zb0, y1, x1, zt0, y1, x2, zt1, y2, x2, zb1, y2 };
+
+					state.ApplyFixedGL1xFunction(nullptr);
+					glEnable(GL_TEXTURE_2D);
+					glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+					// --- SINGLE FAST PASS WITH DOUBLE INTENSITY ---
+					glBegin(GL_QUADS);
+					for (int i = 0; i < 4; i++)
+					{
+						float vx = vtx[i * 3]; float vz = vtx[i * 3 + 1]; float vy = vtx[i * 3 + 2];
+						float dx = vx - lx; float dy = vy - ly; float dz = vz - lz;
+						float dist2 = (dx * dx) + (dy * dy) + (dz * dz);
+
+						float intensity = 0.0f;
+						if (dist2 < radiusSq)
+						{
+							float dist = sqrtf(dist2);
+							intensity = (1.0f - (dist / radius)) * baseFactor * passIntensityMultiplier * 2.0f;
+						}
+
+						if (intensity > 1.0f) intensity = 1.0f;
+						if (intensity < 0.0f) intensity = 0.0f;
+
+						glTexCoord2f(tcs[i].u, tcs[i].v);
+						glColor4f(intensity, intensity, intensity, 1.0f);
+						glVertex3f(vx, vz, vy);
+					}
+					glEnd();
+				}
+				node = node->nextLight;
+			}
+
+			memcpy(tcs, save, sizeof(tcs)); // Restore layout
+			vertcount = 0;
+
+			// CLEAN ARCHITECTURAL FIX: SYNC STATE MACHINE AND PREVENT BLEND LEAKS INTO SKY
+			state.EnableFog(true);
+			state.BlendGL1xFunc(GL_ONE, GL_ZERO);
+			state.SetTextureMode(TM_MODULATE);
+			glDepthFunc(GL_LESS);
+			glDepthMask(true);
+
+			state.ApplyFixedGL1xFunction(nullptr);
+			glEnable(GL_FOG);
+			glBlendFunc(GL_ONE, GL_ZERO);
+			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+		}
+	}
+	break;
+
+	case GLPASS_LIGHTEFFECTS_LEGACY:
+	{
+		int wallLight = this->lightlevel;
+		float intensityFactor;
+		if (wallLight < 96) intensityFactor = 1.0f;
+		else
+		{
+			const float rangeFactorInv = 1.0f / (255.0f - 96.0f);
+			float factor = 1.0f - ((float)(wallLight - 96) * rangeFactorInv);
+			factor = factor + 0.1f * factor * (1.0f - factor);
+			intensityFactor = (factor * 0.99f) + 0.01f;
+		}
+		if (intensityFactor > 1.0f) intensityFactor = 1.0f;
+		if (intensityFactor < 0.0f) intensityFactor = 0.0f;
+
+		float topglow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		float bottomglow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+		bool hasWallGlow = (frontsector != nullptr) && frontsector->GetWallGlow(topglow, bottomglow);
+		FMaterial* wallMat = FMaterial::ValidateTexture(texture, 0); // 0 for clean default scaleflags
+		FMaterial* bm = (wallMat != nullptr) ? wallMat->GetBrightmapLegacy() : nullptr;
+
+		float x1 = (float)glseg.x1; float y1 = (float)glseg.y1;
+		float x2 = (float)glseg.x2; float y2 = (float)glseg.y2;
+		float zb0 = (float)zbottom[0]; float zt0 = (float)ztop[0];
+		float zt1 = (float)ztop[1]; float zb1 = (float)zbottom[1];
+
+		state.SetTextureMode(TM_BRIGHTMAP_LEGACY);
+		glEnable(GL_TEXTURE_2D);
+
+		if (bm) // PASS A: RENDER BRIGHTMAPS
+		{
+			state.SetGL1xMaterial(bm, flags & 3, 0, -1, false);
+			state.ApplyFixedGL1xFunction(nullptr);
+
+			glBegin(GL_QUADS);
+			for (int i = 0; i < 4; i++)
+			{
+				glTexCoord2f(tcs[i].u, tcs[i].v);
+				glColor4f(intensityFactor, intensityFactor, intensityFactor, 1.0f);
+
+				float vx = (i == 0 || i == 1) ? x1 : x2;
+				float vy = (i == 0 || i == 1) ? y1 : y2;
+				float vz = (i == 0) ? zb0 : (i == 1) ? zt0 : (i == 2) ? zt1 : zb1;
+				glVertex3f(vx, vz, vy);
+			}
+			glEnd();
+		}
+
+		if (gl_legacy_dynlight_baked_huge) // PASS B: VERTEX LIGHTMAP BAKING FOR BIG DYNLIGHTS
+		{
+			FLightNode *node = (seg != nullptr && seg->sidedef != nullptr) ? 
+				(!(seg->sidedef->Flags & WALLF_POLYOBJ) ? 
+					seg->sidedef->lighthead : (sub ? sub->section->lighthead : nullptr)) : nullptr;
+
+			if (node != nullptr) // Process only if active lights exist
+			{
+				float r_accum[4] = { 0.f, 0.f, 0.f, 0.f };
+				float g_accum[4] = { 0.f, 0.f, 0.f, 0.f };
+				float b_accum[4] = { 0.f, 0.f, 0.f, 0.f };
+				bool hasActiveBigLights = false;
+				bool isCamglowDynlightHere = false;
+
+				// Re-extract original float bounds exactly matching your hardware quad layout
+				float zb0 = (float)zbottom[0]; float zt0 = (float)ztop[0];
+				float zt1 = (float)ztop[1];    float zb1 = (float)zbottom[1];
+
+				// Map the 4 un-padded physical vertex tracking anchors onto a DVector3 stack
+				DVector3 vtxPoints[4];
+				vtxPoints[0] = DVector3(x1, y1, zb0); // Vertex 0: Bottom-Left
+				vtxPoints[1] = DVector3(x1, y1, zt0); // Vertex 1: Top-Left
+				vtxPoints[2] = DVector3(x2, y2, zt1); // Vertex 2: Top-Right
+				vtxPoints[3] = DVector3(x2, y2, zb1); // Vertex 3: Bottom-Right
+
+				// Extract active light level context by evaluating both sides 
+				// of the 2S linedef to prevent massive overbrightening on sector junctions.
+				int fakeContrastValue = 0;
+				int contrastlevlight = 0;
+				const float invMul255 = 1.0f / 255.0f;
+
+				float intensityModifier = 1.0f;
+				{
+					// Otherwise it gets too bright on initially bright walls
+					if      (contrastlevlight <= 136)                           { intensityModifier *= 0.995f; }
+					else if (contrastlevlight >= 137 && contrastlevlight < 144) { intensityModifier *= 0.950f; }
+					else if (contrastlevlight >= 144 && contrastlevlight < 152) { intensityModifier *= 0.800f; }
+					else if (contrastlevlight >= 152 && contrastlevlight < 160) { intensityModifier *= 0.750f; }
+					else if (contrastlevlight >= 160 && contrastlevlight < 168) { intensityModifier *= 0.600f; }
+					else if (contrastlevlight >= 168 && contrastlevlight < 176) { intensityModifier *= 0.550f; }
+					else if (contrastlevlight >= 176 && contrastlevlight < 184) { intensityModifier *= 0.600f; }
+					else if (contrastlevlight >= 184 && contrastlevlight < 192) { intensityModifier *= 0.750f; }
+					else if (contrastlevlight >= 192 && contrastlevlight < 200) { intensityModifier *= 0.800f; }
+					else if (contrastlevlight >= 200 && contrastlevlight < 216) { intensityModifier *= 0.850f; }
+					else if (contrastlevlight >= 216 && contrastlevlight < 232) { intensityModifier *= 0.900f; }
+					else if (contrastlevlight >= 232 && contrastlevlight < 248) { intensityModifier *= 0.950f; }
+					else if (contrastlevlight >= 255)                           { intensityModifier *= 0.995f; }
+				}
+				intensityModifier *= 0.75f;
+
+				float fakeContrastScaleFactor = 1.0f + ((float)fakeContrastValue / 128.0f);
+				if (fakeContrastScaleFactor < 0.2f) fakeContrastScaleFactor = 0.2f; // Safe clamp floor bounds
+
+				while (node) // Parse through the active segment light nodes thread chain
+				{
+					FDynamicLight *light = node->lightsource;
+					if (light->IsDynlightCamglow()) isCamglowDynlightHere = true;
+
+					// Target exclusively large broad static lamps (> 468 radius) to kill multi-pass lag
+					if (light && light->IsActive() && /* !isCamglowDynlightHere && */ light->GetRadius() > 468.0f)
+					{
+						hasActiveBigLights = true;
+
+						// Extract raw un-corrupted RGB spectrum channels straight from light memory map
+						float lr = (float)light->GetRed() * invMul255;
+						float lg = (float)light->GetGreen() * invMul255;
+						float lb = (float)light->GetBlue() * invMul255;
+
+						float radius = light->GetRadius();
+						DVector3 lpos = light->PosRelative(seg->frontsector->PortalGroup);
+
+						// 1. COMPUTE TRUE PRECISIOH 3D DISTANCE ATTENUATION FOR EACH VERTEX CORNER CORNER.
+						for (int i = 0; i < 4; i++)
+						{
+							DVector3 dirToVert = vtxPoints[i] - lpos; // Distance vector from center to angle corner
+							float true3DDist = (float)dirToVert.Length();
+
+							if (true3DDist >= radius) continue; // Out of boundary sphere limits
+
+							// Smooth linear falloff curve for circular gradients on walls
+							float ratio = true3DDist / radius;
+							float cs = 1.0f - ratio;
+
+							cs *= intensityModifier; // Factor in your overall glow scalar dynamically
+
+							if (light->IsAdditive()) cs *= 0.2f; // Keep additive channels bounded
+
+							// Sum vectors directly into size-4 local matrix channels
+							r_accum[i] += lr * cs;
+							g_accum[i] += lg * cs;
+							b_accum[i] += lb * cs;
+						}
+					}
+					node = node->nextLight; // Move safely down the chain link, otherwise FREEZING CRASH
+				}
+
+				if (hasActiveBigLights)
+				{
+					for (int v = 0; v < 4; v++)
+					{
+						if (r_accum[v] > 1.0f) r_accum[v] = 1.0f;
+						if (g_accum[v] > 1.0f) g_accum[v] = 1.0f;
+						if (b_accum[v] > 1.0f) b_accum[v] = 1.0f;
+					}
+
+					// Re-bind the diffuse wall texture so that our lightmaps blend identically to glowing flats
+					state.SetTextureMode(TM_MODULATE);
+					state.SetGL1xMaterial(bm, flags & 3, 0, -1, false);
+					state.ApplyFixedGL1xFunction(nullptr); // Commit state machine updates into hardware cleanly
+
+					// ANTI-Z-FIGHTING PIPELINE SECURE
+					glDepthFunc(GL_LEQUAL);
+					glDepthMask(false);
+					glEnable(GL_POLYGON_OFFSET_FILL);
+					glPolygonOffset(-0.1f, -0.1f);
+
+					glShadeModel(GL_SMOOTH); // Hard-lock smooth vertex interpolation!
+
+					glBegin(GL_QUADS);
+					// Vertex 0: Bottom-Left Boundary
+					glTexCoord2f(tcs[0].u, tcs[0].v);
+					glColor4f(r_accum[0], g_accum[0], b_accum[0], 1.0f);
+					glVertex3f(x1, zb0, y1);
+					// Vertex 1: Top-Left Upper Edge
+					glTexCoord2f(tcs[1].u, tcs[1].v);
+					glColor4f(r_accum[1], g_accum[1], b_accum[1], 1.0f);
+					glVertex3f(x1, zt0, y1);
+					// Vertex 2: Top-Right Upper Edge
+					glTexCoord2f(tcs[2].u, tcs[2].v);
+					glColor4f(r_accum[2], g_accum[2], b_accum[2], 1.0f);
+					glVertex3f(x2, zt1, y2);
+					// Vertex 3: Bottom-Right Boundary
+					glTexCoord2f(tcs[3].u, tcs[3].v);
+					glColor4f(r_accum[3], g_accum[3], b_accum[3], 1.0f);
+					glVertex3f(x2, zb1, y2);
+					glEnd();
+
+					// Rollback temporary pipeline offset states cleanly
+					glDisable(GL_POLYGON_OFFSET_FILL);
+					glDepthMask(true);
+					glDepthFunc(GL_EQUAL);
+
+					// Re-synchronize back to brightmap state layer for the next conditional passes
+					state.SetTextureMode(TM_BRIGHTMAP_LEGACY);
+					state.ApplyFixedGL1xFunction(nullptr); // Flush blending trackers into hardware
+				}
+			}
+		}
+
+		if (hasWallGlow) // PASS C: RENDER PROCEDURAL SECTOR GLOW GRADIENTS (GLOWING FLATS)
+		{
+			FMaterial* wallMat = FMaterial::ValidateTexture(texture, 0); // 0 for clean default scaleflags
+			if (wallMat != nullptr)
+			{
+				state.SetGL1xMaterial(wallMat, flags & 3, 0, -1, false);
+			}
+			state.ApplyFixedGL1xFunction(nullptr);
+
+			glDepthFunc(GL_LEQUAL);
+			glDepthMask(false);
+			glEnable(GL_POLYGON_OFFSET_FILL);
+			glPolygonOffset(-0.5f, -0.5f);
+
+			float floorGlowHeight = bottomglow[3];
+			float ceilGlowHeight = topglow[3];
+
+			if (floorGlowHeight > 0.0f)
+			{
+				float trueFloorZ0 = (float)frontsector->floorplane.ZatPoint(seg->v1->fPos());
+				float trueFloorZ1 = (float)frontsector->floorplane.ZatPoint(seg->v2->fPos());
+				float splitZ0 = trueFloorZ0 + floorGlowHeight;
+				float splitZ1 = trueFloorZ1 + floorGlowHeight;
+				float rBottomZ0 = trueFloorZ0; if (rBottomZ0 < zb0) rBottomZ0 = zb0;
+				float rBottomZ1 = trueFloorZ1; if (rBottomZ1 < zb1) rBottomZ1 = zb1;
+				float rTopZ0 = splitZ0; if (rTopZ0 > zt0) rTopZ0 = zt0;
+				float rTopZ1 = splitZ1; if (rTopZ1 > zt1) rTopZ1 = zt1;
+
+				if (rTopZ0 > rBottomZ0 && rTopZ1 > rBottomZ1)
+				{
+					float v_range0 = tcs[1].v - tcs[0].v; float v_range1 = tcs[2].v - tcs[3].v;
+					float h_total0 = zt0 - zb0; float h_total1 = zt1 - zb1;
+
+					float sliceBottomV0 = tcs[0].v + (h_total0 > 0.0f ? ((rBottomZ0 - zb0) / h_total0) * v_range0 : 0.0f);
+					float sliceBottomV1 = tcs[3].v + (h_total1 > 0.0f ? ((rBottomZ1 - zb1) / h_total1) * v_range1 : 0.0f);
+					float sliceTopV0 = tcs[0].v + (h_total0 > 0.0f ? ((rTopZ0 - zb0) / h_total0) * v_range0 : 0.0f);
+					float sliceTopV1 = tcs[3].v + (h_total1 > 0.0f ? ((rTopZ1 - zb1) / h_total1) * v_range1 : 0.0f);
+
+					float intensityBottom0 = 1.0f - ((rBottomZ0 - trueFloorZ0) / floorGlowHeight);
+					float intensityBottom1 = 1.0f - ((rBottomZ1 - trueFloorZ1) / floorGlowHeight);
+					float intensityTop0 = 1.0f - ((rTopZ0 - trueFloorZ0) / floorGlowHeight);
+					float intensityTop1 = 1.0f - ((rTopZ1 - trueFloorZ1) / floorGlowHeight);
+
+					glBegin(GL_QUADS);
+					glTexCoord2f(tcs[0].u, sliceBottomV0);
+					glColor4f(bottomglow[0] * intensityBottom0, bottomglow[1] * intensityBottom0, bottomglow[2] * intensityBottom0, 1.0f);
+					glVertex3f(x1, rBottomZ0, y1);
+
+					glTexCoord2f(tcs[1].u, sliceTopV0);
+					glColor4f(bottomglow[0] * intensityTop0, bottomglow[1] * intensityTop0, bottomglow[2] * intensityTop0, 1.0f);
+					glVertex3f(x1, rTopZ0, y1);
+
+					glTexCoord2f(tcs[2].u, sliceTopV1);
+					glColor4f(bottomglow[0] * intensityTop1, bottomglow[1] * intensityTop1, bottomglow[2] * intensityTop1, 1.0f);
+					glVertex3f(x2, rTopZ1, y2);
+
+					glTexCoord2f(tcs[3].u, sliceBottomV1);
+					glColor4f(bottomglow[0] * intensityBottom1, bottomglow[1] * intensityBottom1, bottomglow[2] * intensityBottom1, 1.0f);
+					glVertex3f(x2, rBottomZ1, y2);
+					glEnd();
+				}
+			}
+
+			if (ceilGlowHeight > 0.0f)
+			{
+				float trueCeilZ0 = (float)frontsector->ceilingplane.ZatPoint(seg->v1->fPos());
+				float trueCeilZ1 = (float)frontsector->ceilingplane.ZatPoint(seg->v2->fPos());
+				float splitZ0 = trueCeilZ0 - ceilGlowHeight;
+				float splitZ1 = trueCeilZ1 - ceilGlowHeight;
+				float rTopZ0 = trueCeilZ0; if (rTopZ0 > zt0) rTopZ0 = zt0;
+				float rTopZ1 = trueCeilZ1; if (rTopZ1 > zt1) rTopZ1 = zt1;
+				float rBottomZ0 = splitZ0; if (rBottomZ0 < zb0) rBottomZ0 = zb0;
+				float rBottomZ1 = splitZ1; if (rBottomZ1 < zb1) rBottomZ1 = zb1;
+
+				if (rTopZ0 > rBottomZ0 && rTopZ1 > rBottomZ1)
+				{
+					float v_range0 = tcs[1].v - tcs[0].v; float v_range1 = tcs[2].v - tcs[3].v;
+					float h_total0 = zt0 - zb0; float h_total1 = zt1 - zb1;
+
+					float sliceBottomV0 = tcs[0].v + (h_total0 > 0.0f ? ((rBottomZ0 - zb0) / h_total0) * v_range0 : 0.0f);
+					float sliceBottomV1 = tcs[3].v + (h_total1 > 0.0f ? ((rBottomZ1 - zb1) / h_total1) * v_range1 : 0.0f);
+					float sliceTopV0 = tcs[0].v + (h_total0 > 0.0f ? ((rTopZ0 - zb0) / h_total0) * v_range0 : 0.0f);
+					float sliceTopV1 = tcs[3].v + (h_total1 > 0.0f ? ((rTopZ1 - zb1) / h_total1) * v_range1 : 0.0f);
+
+					float intensityBottom0 = 1.0f - ((trueCeilZ0 - rBottomZ0) / ceilGlowHeight);
+					float intensityBottom1 = 1.0f - ((trueCeilZ1 - rBottomZ1) / ceilGlowHeight);
+					float intensityTop0 = 1.0f - ((trueCeilZ0 - rTopZ0) / ceilGlowHeight);
+					float intensityTop1 = 1.0f - ((trueCeilZ1 - rTopZ1) / ceilGlowHeight);
+
+					glBegin(GL_QUADS);
+					glTexCoord2f(tcs[0].u, sliceBottomV0);
+					glColor4f(topglow[0] * intensityBottom0, topglow[1] * intensityBottom0, topglow[2] * intensityBottom0, 1.0f);
+					glVertex3f(x1, rBottomZ0, y1);
+
+					glTexCoord2f(tcs[1].u, sliceTopV0);
+					glColor4f(topglow[0] * intensityTop0, topglow[1] * intensityTop0, topglow[2] * intensityTop0, 1.0f);
+					glVertex3f(x1, rTopZ0, y1);
+
+					glTexCoord2f(tcs[2].u, sliceTopV1);
+					glColor4f(topglow[0] * intensityTop1, topglow[1] * intensityTop1, topglow[2] * intensityTop1, 1.0f);
+					glVertex3f(x2, rTopZ1, y2);
+
+					glTexCoord2f(tcs[3].u, sliceBottomV1);
+					glColor4f(topglow[0] * intensityBottom1, topglow[1] * intensityBottom1, topglow[2] * intensityBottom1, 1.0f);
+					glVertex3f(x2, rBottomZ1, y2);
+					glEnd();
+				}
+			}
+
+			glDisable(GL_POLYGON_OFFSET_FILL);
+			glDepthMask(true);
+			glDepthFunc(GL_EQUAL);
+		}
+
+		// Clean hardware recovery matrix gate
+		glMatrixMode(GL_MODELVIEW);
+		state.SetTextureMode(TM_MODULATE);
+		state.ApplyFixedGL1xFunction(nullptr);
+	}
+	break;
+
+	default:
+		break;
+	}
+
+	g_isCurrentlyHWWallDrawing = nullptr;
 }
 
 //==========================================================================
@@ -406,6 +1099,7 @@ void HWWall::DrawWall(HWWallDispatcher*di, FRenderState &state, bool translucent
 //
 //==========================================================================
 
+// GL3+ analog of RenderLightsCompat
 void HWWall::SetupLights(HWDrawInfo*di, FDynLightData &lightdata)
 {
 	lightdata.Clear();

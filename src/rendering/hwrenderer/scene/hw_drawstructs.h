@@ -120,6 +120,7 @@ class HWWall;
 // this only exists to keep HWWallDispatcher trivial
 
 struct HWWallDispatcher;
+class FDynamicLight;    // forward declare to let GLES compile
 
 class HWWall
 {
@@ -217,6 +218,7 @@ public:
 	//private:
 
 	void PutWall(HWWallDispatcher* di, bool translucent);
+	bool PutWallCompat(struct HWDrawInfo* di, int passflag);
 	void PutPortal(HWWallDispatcher* di, int ptype, int plane);
 	void CheckTexturePosition(FTexCoordInfo* tci);
 
@@ -298,6 +300,11 @@ public:
 
 	void DrawWall(HWWallDispatcher* di, FRenderState& state, bool translucent);
 
+	void DrawGL1xWallImplementation(struct HWWallDispatcher* dispatcher, struct HWDrawInfo* di, class FRenderState& state, int pass);
+	void RenderFogBoundaryCompat(HWDrawInfo* di);
+	void RenderLightsCompat(HWDrawInfo* di, FRenderState& state, int pass);
+	bool PrepareGL1xLightOnWall(FDynamicLight* light, int pass); // line #305
+
 };
 
 //==========================================================================
@@ -336,15 +343,22 @@ public:
 	void SetupLights(HWDrawInfo *di, FLightNode *head, FDynLightData &lightdata, int portalgroup);
 
 	void PutFlat(HWDrawInfo *di, bool fog = false);
+	bool PutFlatCompat(struct HWDrawInfo* di, int passflag);
 	void Process(HWDrawInfo *di, sector_t * model, int whichplane, bool notexture);
 	void SetFrom3DFloor(F3DFloor *rover, bool top, bool underside);
 	void ProcessSector(HWDrawInfo *di, sector_t * frontsector, int which = 7 /*SSRF_RENDERALL*/);	// cannot use constant due to circular dependencies.
 	
 	void DrawSubsectors(HWDrawInfo *di, FRenderState &state);
 	void DrawFlat(HWDrawInfo *di, FRenderState &state, bool translucent);
-    
+ 
     void DrawOtherPlanes(HWDrawInfo *di, FRenderState &state);
     void DrawFloodPlanes(HWDrawInfo *di, FRenderState &state);
+
+	// GL1x/GL2x stuff
+	void DrawGL1xSkyboxSector(HWDrawInfo* di, FRenderState& state, int pass, bool processlights);
+	void DrawGL1xSubsectorLights(subsector_t* sub, int pass);
+	void DrawLightsCompat(HWDrawInfo* di, int pass);
+	void DrawGL1xFlatImplementation(HWWallDispatcher* dispatcher, HWDrawInfo* di, FRenderState& state, int pass);
 };
 
 //==========================================================================

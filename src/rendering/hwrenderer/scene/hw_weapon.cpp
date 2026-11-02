@@ -41,8 +41,10 @@
 #include "hw_material.h"
 #include "hw_lighting.h"
 #include "hw_cvars.h"
+
 #include "hwrenderer/scene/hw_drawinfo.h"
 #include "hwrenderer/scene/hw_drawstructs.h"
+
 #include "flatvertices.h"
 #include "hw_lightbuffer.h"
 #include "hw_renderstate.h"
@@ -54,6 +56,7 @@ EXTERN_CVAR(Int, gl_fuzztype)
 EXTERN_CVAR(Bool, r_drawplayersprites)
 EXTERN_CVAR(Bool, r_deathcamera)
 
+struct HWDrawInfo; // forward declare for the method realizations to be visible in hw_drawinfo.h
 
 //==========================================================================
 //

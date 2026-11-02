@@ -1,3 +1,4 @@
+// hw_drawlist.h
 #pragma once
 
 #include "memarena.h"
@@ -113,6 +114,9 @@ public:
 	void Draw(HWDrawInfo *di, FRenderState &state, bool translucent);
 	void DrawWalls(HWDrawInfo *di, FRenderState &state, bool translucent);
 	void DrawFlats(HWDrawInfo *di, FRenderState &state, bool translucent);
+
+	void DrawGL1xWalls(struct HWWallDispatcher* dispatcher, struct HWDrawInfo* di, class FRenderState& state, int pass);
+	void DrawGL1xFlats(struct HWDrawInfo* di, class FRenderState& state, int pass);
 
 	void DrawSorted(HWDrawInfo *di, FRenderState &state, SortNode * head);
 	void DrawSorted(HWDrawInfo *di, FRenderState &state);

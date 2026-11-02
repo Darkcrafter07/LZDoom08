@@ -20,7 +20,7 @@
 //--------------------------------------------------------------------------
 //
 /*
-** gl_light.cpp
+** hw_lighting.cpp, former gl_lightdata.cpp
 ** Light level / fog management / dynamic lights
 **
 **/
@@ -33,6 +33,7 @@
 
 // externally settable lighting properties
 static float distfogtable[2][256];	// light to fog conversion table for black fog
+static float distgl1xsoftwarefogtable[2][256]; // light to fog conversion table for black fog for GL1x/GL2 software sector light modes
 
 CVAR(Int, gl_weaponlight, 8, CVAR_ARCHIVE);
 CVAR(Bool, gl_enhanced_nightvision, false, CVAR_ARCHIVE|CVAR_NOINITCALL)
@@ -67,6 +68,130 @@ CUSTOM_CVAR(Int, gl_distfog, 70, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 			distfogtable[1][i] = (216.f - i) / ((216.f - 128.f)) * gl_distfog / 10;
 		}
 		else distfogtable[1][i] = 0;
+	}
+}
+
+// There's a need to have a separate fogtable for software/vanilla modes
+CUSTOM_CVAR(Int, gl_distsoftwaregl1xfog, 70, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	const bool useHQtablegen = true;
+	const float invMul255 = 1.0f / 255.0f;
+
+	if (useHQtablegen)
+	{
+		for (int i = 0; i < 256; i++)
+		{
+			// Normalize index to a 0.0f - 1.0f scale
+			float f = (float)i * invMul255;
+
+			// --- SOFTWARE SECTOR LIGHT MODE #8 (ORIGINAL EXE) ---
+			// We keep the heavy 1.40f multiplier to lock down rich software shadows in the dark,
+			// but we modify the decay power dynamically.
+			float baseDensity0 = (float)gl_distsoftwaregl1xfog * 1.40f;
+
+			// Added an aggressive power-scaling shift (-4.10f * f - 1.65f * (f * f)).
+			// In dark-to-mid zones (f < 0.4), the quadratic component is near zero, keeping the shadows heavy.
+			// In bright sectors (160 to 176, f > 0.6), the (f * f) term kicks in like a booster, 
+			// slamming the fog density down to absolute zero way faster. This fully stops the geometry 
+			// from prematurely drowning in fog at long distances, matching the clear look of the original Dark.
+			distgl1xsoftwarefogtable[0][i] = baseDensity0 * expf(-4.10f * f - 1.65f * (f * f));
+
+			// Hard safety cushion gate right at the edge of fullbright to prevent register overflow
+			if (i >= 235) distgl1xsoftwarefogtable[0][i] = 0.0f;
+
+
+			// --- VANILLA SECTOR LIGHT MODE #16 ---
+			// So far, the formulas may be closer to exe but it looks darker and wrong but let's have it too.
+			// Mapped onto the same high-velocity clearing curve for bright layers
+			float baseDensity1 = 6.0f + (float)gl_distsoftwaregl1xfog * 1.65f;
+			distgl1xsoftwarefogtable[1][i] = baseDensity1 * expf(-4.60f * f - 1.95f * (f * f));
+
+			if (i >= 220) distgl1xsoftwarefogtable[1][i] = 0.0f;
+		}
+	}
+	else
+	{
+		// ---=== PIECEWISE APPROXIMATION OF OUR HQ EXP MATRIX ===---
+		int baseVal = gl_distsoftwaregl1xfog;
+
+		// PATCH: Restored heavy base multipliers back to match 1.40f and 1.65f HQ anchors.
+		// This brings back pristine, pitch-black software shadow definition in dark areas!
+		int sftDarkAnchor = (int)(baseVal * 1.40f);
+		int vanDarkAnchor = 6 + (int)(baseVal * 1.65f);
+
+		for (int i = 0; i < 256; i++)
+		{
+			// 1. --- SOFTWARE SECTOR LIGHT MODE #8 (HQ-ALIGNED PIECEWISE) ---
+			if (i < 32)
+			{
+				distgl1xsoftwarefogtable[0][i] = sftDarkAnchor - (sftDarkAnchor * 0.15f) * i / 32;
+			}
+			else if (i < 64)
+			{
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.85f) - (sftDarkAnchor * 0.23f) * (i - 32) / 32;
+			}
+			else if (i < 96)
+			{
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.62f) - (sftDarkAnchor * 0.25f) * (i - 64) / 32;
+			}
+			else if (i < 128)
+			{
+				// Zone 3: Central Mid-Tones. The slope begins to take a steep dive here.
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.37f) - (sftDarkAnchor * 0.20f) * (i - 96) / 32;
+			}
+			else if (i < 164)
+			{
+				// Zone 4: Upper Mid-Tones. Accelerated drop-off completely mimics the (f * f) booster!
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.17f) - (sftDarkAnchor * 0.11f) * (i - 128) / 36;
+			}
+			else if (i < 196)
+			{
+				// Zone 5: Bright Room Baseline. Dropped sharply near zero to keep distant walls clear.
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.06f) - (sftDarkAnchor * 0.04f) * (i - 164) / 32;
+			}
+			else if (i < 235)
+			{
+				distgl1xsoftwarefogtable[0][i] = (int)(sftDarkAnchor * 0.02f) - (sftDarkAnchor * 0.02f) * (i - 196) / (235 - 196);
+			}
+			else
+			{
+				distgl1xsoftwarefogtable[0][i] = 0.0f;
+			}
+
+			// 2. --- VANILLA SECTOR LIGHT MODE #16 (HQ-ALIGNED PIECEWISE) ---
+			if (i < 32)
+			{
+				distgl1xsoftwarefogtable[1][i] = vanDarkAnchor - (vanDarkAnchor * 0.22f) * i / 32;
+			}
+			else if (i < 64)
+			{
+				distgl1xsoftwarefogtable[1][i] = (int)(vanDarkAnchor * 0.78f) - (vanDarkAnchor * 0.26f) * (i - 32) / 32;
+			}
+			else if (i < 96)
+			{
+				distgl1xsoftwarefogtable[1][i] = (int)(vanDarkAnchor * 0.52f) - (vanDarkAnchor * 0.24f) * (i - 64) / 32;
+			}
+			else if (i < 128)
+			{
+				distgl1xsoftwarefogtable[1][i] = (int)(vanDarkAnchor * 0.28f) - (vanDarkAnchor * 0.16f) * (i - 96) / 32;
+			}
+			else if (i < 160)
+			{
+				distgl1xsoftwarefogtable[1][i] = (int)(vanDarkAnchor * 0.12f) - (vanDarkAnchor * 0.09f) * (i - 128) / 32;
+			}
+			else if (i < 192)
+			{
+				distgl1xsoftwarefogtable[1][i] = (int)(vanDarkAnchor * 0.03f) - (vanDarkAnchor * 0.03f) * (i - 160) / 32;
+			}
+			else if (i < 220)
+			{
+				distgl1xsoftwarefogtable[1][i] = 0.0f;
+			}
+			else
+			{
+				distgl1xsoftwarefogtable[1][i] = 0.0f;
+			}
+		}
 	}
 }
 
@@ -279,4 +404,3 @@ bool CheckFog(FLevelLocals* Level, sector_t *frontsector, sector_t *backsector, 
 	return ((frontsector->GetTexture(sector_t::ceiling)!=skyflatnum || 
 			 backsector->GetTexture(sector_t::ceiling)!=skyflatnum));
 }
-

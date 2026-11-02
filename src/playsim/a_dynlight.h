@@ -42,7 +42,8 @@ enum LightFlag
 	LF_DONTLIGHTACTORS = 32,
 	LF_SPOT = 64,
 	LF_DONTLIGHTOTHERS = 128,
-	LF_DONTLIGHTMAP = 256
+	LF_DONTLIGHTMAP = 256,
+	LF_CAMGLOWDYNLIGHT = 512, // GL1x/GL2x software sector light mode dynlight imitation
 };
 
 typedef TFlags<LightFlag> LightFlags;
@@ -219,6 +220,7 @@ struct FDynamicLight
 
 
 	bool IsActive() const { return m_active; }
+	bool IsDynlightCamglow() const { return !!((*pLightFlags) & LF_CAMGLOWDYNLIGHT); }
 	float GetRadius() const { return (IsActive() ? m_currentRadius * 2.f : 0.f); }
 	int GetRed() const { return pArgs[LIGHT_RED]; }
 	int GetGreen() const { return pArgs[LIGHT_GREEN]; }

@@ -1,3 +1,4 @@
+// hw_clipper.h
 #ifndef __GL_CLIPPER
 #define __GL_CLIPPER
 
