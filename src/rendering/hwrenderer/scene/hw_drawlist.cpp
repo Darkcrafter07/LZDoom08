@@ -824,6 +824,24 @@ HWSprite *HWDrawList::NewSprite()
 
 //==========================================================================
 //
+//
+//
+//==========================================================================
+
+void HWDrawList::DoDraw(HWDrawInfo* di, FRenderState& state, bool translucent, int i)
+{
+	if (gl.legacyMode)
+	{
+		DoDrawGL1x(di, state, translucent, i);
+	}
+	else
+	{
+		DoDrawGL3x(di, state, translucent, i);
+	}
+}
+
+//==========================================================================
+//
 // [Single-Pass Alpha/Z Sync & Feature Bypass]
 //
 // WHAT YOU MUST DO:
@@ -864,7 +882,7 @@ HWSprite *HWDrawList::NewSprite()
 //    at the end of STEP 2 cleanup gates to prevent pipeline drifts.
 //
 //==========================================================================
-void HWDrawList::DoDraw(HWDrawInfo *di, FRenderState &state, bool translucent, int i)
+void HWDrawList::DoDrawGL1x(HWDrawInfo *di, FRenderState &state, bool translucent, int i)
 {
 	int currentRenderType = drawitems[i].rendertype;
 	int index = drawitems[i].index;
@@ -1242,6 +1260,40 @@ void HWDrawList::DoDraw(HWDrawInfo *di, FRenderState &state, bool translucent, i
 
 	OpenGLRenderer::gl_RenderState.g_isCurrentlyDrawingGL1xTransluscentDynlightWall = false;
 	OpenGLRenderer::gl_RenderState.g_isCurrentlyDrawingGL1xTransluscentDynlightFlat = false;
+}
+
+void HWDrawList::DoDrawGL3x(HWDrawInfo* di, FRenderState& state, bool translucent, int i)
+{
+	switch (drawitems[i].rendertype)
+	{
+	case DrawType_FLAT:
+	{
+		HWFlat* f = flats[drawitems[i].index];
+		RenderFlat.Clock();
+		f->DrawFlat(di, state, translucent);
+		RenderFlat.Unclock();
+	}
+	break;
+
+	case DrawType_WALL:
+	{
+		HWWall* w = walls[drawitems[i].index];
+		HWWallDispatcher dis(di);
+		RenderWall.Clock();
+		w->DrawWall(&dis, state, translucent);
+		RenderWall.Unclock();
+	}
+	break;
+
+	case DrawType_SPRITE:
+	{
+		HWSprite* s = sprites[drawitems[i].index];
+		RenderSprite.Clock();
+		s->DrawSprite(di, state, translucent);
+		RenderSprite.Unclock();
+	}
+	break;
+	}
 }
 
 //==========================================================================

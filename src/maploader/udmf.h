@@ -4,6 +4,10 @@
 #include "sc_man.h"
 #include "m_fixed.h"
 
+int     GetUDMFInt(FLevelLocals *Level, int type, int index, FName key);
+double  GetUDMFFloat(FLevelLocals *Level, int type, int index, FName key);
+FString GetUDMFString(FLevelLocals *Level, int type, int index, FName key);
+
 class UDMFParserBase
 {
 protected:

@@ -334,7 +334,7 @@ float R_DoomLightingEquation(float light)
 	}
 	else 
 	{
-		z = pixelpos.w;
+		z = pixelpos.w + (uAnamorphicData.x * 3.4);
 	}
 
 	if ((uPalLightLevels >> 16) == 5) // gl_lightmode 5: Build software lighting emulation.

@@ -297,5 +297,15 @@ void P_TranslatePortalZ(line_t* src, double& vz);
 struct FLevelLocals;
 void InitPortalGroups(FLevelLocals *Level);
 
+// [Darkcrafter07] - 3D line portals ( line portal with window cut )
+struct FPortalCutHeights
+{
+	float Floor;
+	float Ceiling;
+	float OffsetDistVisual;
+	float OffsetDistMovement;
+	bool  HasDynamicHeights;
+};
+void GetLinePortalCutHeights(const line_t* ld, const sector_t* frontsector, FPortalCutHeights* result);
 
 #endif

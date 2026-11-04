@@ -363,7 +363,7 @@ inline bool isGeometryTypePresentInRadiusCachedWrapper(AActor* thing, EGeometryR
 
 // --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
 
-inline bool IsSpriteInActivePortalGroup(AActor* thing, AActor* viewer)
+bool IsSpriteNOTinActivePortalGroup(AActor* thing, AActor* viewer)
 {
 	if (!thing || !viewer) return true;
 	if (!thing->Sector || !viewer->Sector) return true;
@@ -925,7 +925,7 @@ bool ViewerCrossed1sidedLinedefCachedWrapper(AActor *thing, AActor *viewer)
 	// Fast escape checks
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return false;
 
 	// Use caching if enabled matching your standard engine layout
@@ -1050,7 +1050,7 @@ bool SpriteCrossed1sidedLinedefCachedWrapper(AActor *thing, AActor *viewer)
 	// Fast escape checks
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return false;
 
 	// Use caching if enabled
@@ -1403,7 +1403,7 @@ bool SpriteBboxFacingCameraCrossed1sLineCachedWrapper(AActor *thing, AActor *vie
 	// Fast escape checks
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return false;
 
 	// Use caching if enabled
@@ -1608,7 +1608,7 @@ bool SpriteCrossed1sidedVoidLinedefCachedWrapper(AActor *thing, AActor *viewer)
 {
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return false;
 
 	if (enableAnamorphCache)
@@ -1817,7 +1817,7 @@ bool SpriteCrossed1sidedVoidBboxFaceCachedWrapper(AActor *thing, AActor *viewer)
 {
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return false;
 
 	if (enableAnamorphCache)
@@ -1910,7 +1910,7 @@ bool IsSpriteVisibleBehind1sidedLinesCachedWrapper(AActor *thing, AActor *viewer
 	if (!thing || !viewer) return false;
 	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 	// This function is called with "!" in front, that's why "return true" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_1SIDED)) return true;
 
 	// The FOV check is VERY BAD for 1 sided stuff!
@@ -1960,7 +1960,7 @@ bool IsSpriteVisibleBehind1sidedLinesCachedWrapper(AActor *thing, AActor *viewer
 
 constexpr float MINCOORD2SIDED = -FLT_MAX;
 constexpr float MAXCOORD2SIDED = FLT_MAX;
-constexpr float EPSILON2SIDED = 0.001;
+constexpr float EPSILON2SIDED = 0.001f;
 float           Ztolerance2sided = 2.0f;
 float           Ztolerance2sidedBot = 4.0f; // lower vals - legs on elevations cull more if seen from below
 
@@ -2034,7 +2034,7 @@ bool SpriteCrossed2sidedLineSimpleCachedWrapper(AActor *thing, AActor *viewer)
 {
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_2SIDED_WALL)) return false;
 
 	if (enableAnamorphCache) 	// Use caching if enabled
@@ -2419,7 +2419,7 @@ bool SpriteCrossed2sBBoxFaceLineCachedWrapper(AActor *thing, AActor *viewer)
 {
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_2SIDED_WALL)) return false;
 
 	if (enableAnamorphCache) 	// Use caching if enabled
@@ -2779,7 +2779,7 @@ bool SpriteCrossed2sBboxFaceWallCachedWrapper(AActor *thing, AActor *viewer)
 {
 	if (!thing || !viewer) return false;
 	// This function is called withOUT "!" in front, that's why "return false" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return false;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return false;
 	if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_2SIDED_WALL)) return false;
 
 	if (enableAnamorphCache)
@@ -3781,7 +3781,7 @@ static bool CheckLineOfSight2sided(AActor *viewer, AActor *thing, float dynlight
 //	if (!viewer || !thing || viewer == thing) return false;
 //	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 //	// This function is called with "!" in front, that's why "return true" for early exit
-//	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+//	// if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 //	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_2SIDED_WALL)) return true;
 //
 //	// 1. Occlusion test - choose implementation based on toggle
@@ -3820,7 +3820,7 @@ bool IsSpriteVisibleBehind2sidedLinedefSectObstrWrapperCached(AActor *viewer, AA
 	if (!viewer || !thing || viewer == thing) return false;
 	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 	// This function is called with "!" in front, that's why "return true" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 	if (CheckFrustumCulling(thing)) return false;
 	if (IsAnamorphicDistanceCulled(thing, 2048.0f)) return false;
 	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_2SIDED_WALL)) return true;
@@ -3956,14 +3956,27 @@ struct MidTextureFencePathAccumulator
 				// === LZDoom07 way FINISH =============================================================
 
 				// === UZDoom way START ================================================================
-				FGameTexture *gtex = TexMan.GameTexture(midtex);
-				// Verify that it is a real graphical texture map and not a generic empty node container
-				if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr && !gtex->GetName().IsEmpty())
+				FGameTexture* gtex = TexMan.GameTexture(midtex);
+				if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr)
 				{
-					currentLineHasMid = true;
-					checkedSide = line->sidedef[sideno];
-					if (!gtex->isMasked()) currentLineIsSolid = true;
-					break;
+					if (midtex == TexMan.GetDefaultTexture())
+					{
+						continue;
+					}
+					if (!gtex->GetName().IsEmpty() && gtex->GetName().Compare("-") != 0)
+					{
+						if (gtex->GetTexture()->GetWidth() > 1 && gtex->GetTexture()->GetHeight() > 1)
+						{
+							bool isLine2Sided = (line->backsector != nullptr);
+							if (isLine2Sided)
+							{
+								currentLineHasMid = true;
+								checkedSide = line->sidedef[sideno];
+								if (!gtex->isMasked()) currentLineIsSolid = true;
+								break;
+							}
+						}
+					}
 				}
 				// === UZDoom way FINISH ===============================================================
 			}
@@ -4159,15 +4172,33 @@ static float CheckFacingMidTextureProximity(AActor *thing, const AActor *viewer,
 					//}
 					// === LZDoom07 way FINISH =============================================================
 					// === UZDoom way START ================================================================
-					FGameTexture *gtex = TexMan.GameTexture(midtex);
-					if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr && !gtex->GetName().IsEmpty())
+					FGameTexture* gtex = TexMan.GameTexture(midtex);
+					if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr)
 					{
-						if (!gtex->isMasked())
+						if (midtex == TexMan.GetDefaultTexture())
 						{
-							isSolid = true;
-							hasValidMidTextureInSector = true;
+							continue;
 						}
-						break;
+
+						if (!gtex->GetName().IsEmpty() && gtex->GetName().Compare("-") != 0)
+						{
+							if (gtex->GetTexture()->GetWidth() > 1 && gtex->GetTexture()->GetHeight() > 1)
+							{
+								if (line->backsector == nullptr) // skip 1sided
+								{
+									continue;
+								}
+								// Explicitly verify that this is a valid rendered fence or a solid wall àsset
+								// This prevents unmasked transparent technical wrappers from falsely triggering the bypass
+								hasValidMidTextureInSector = true;
+
+								if (!gtex->isMasked())
+								{
+									isSolid = true;
+								}
+								break; // Break strictly when a legitimate layout-defined midtexture is detected
+							}
+						}
 					}
 					// === UZDoom way FINISH ===============================================================
 				}
@@ -4269,11 +4300,25 @@ static float CheckFacingMidTextureProximity(AActor *thing, const AActor *viewer,
 								// === LZDoom07 way FINISH =============================================================
 
 								// === UZDoom way START ================================================================
-								FGameTexture *gtex = TexMan.GameTexture(mtex);
-								if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr && !gtex->GetName().IsEmpty())
+								FGameTexture* gtex = TexMan.GameTexture(mtex);
+								if (gtex && gtex->isValid() && gtex->GetTexture() != nullptr)
 								{
-									nearbyBlockContainsValid2SMidTex = true;
-									break;
+									if (mtex == TexMan.GetDefaultTexture())
+									{
+										continue;
+									}
+
+									if (!gtex->GetName().IsEmpty() && gtex->GetName().Compare("-") != 0)
+									{
+										if (gtex->GetTexture()->GetWidth() > 1 && gtex->GetTexture()->GetHeight() > 1)
+										{
+											if (checkLine->backsector != nullptr) // skip 1sided lines
+											{
+												nearbyBlockContainsValid2SMidTex = true;
+												break;
+											}
+										}
+									}
 								}
 								// === UZDoom way FINISH ===============================================================
 							}
@@ -4471,7 +4516,7 @@ static float CheckFacingMidTextureProximity(AActor *thing, const AActor *viewer,
 			bool floorOccludes = false;
 			if (fenceFloor >= (spriteBottom + LEDGE_THRESHOLD))
 			{
-				if (fenceFloor > (viewerBottom + Ztolerance2sided))
+				if (fenceFloor > (viewerBottom + 8.0f))
 				{
 					floorOccludes = true;
 				}
@@ -4481,7 +4526,7 @@ static float CheckFacingMidTextureProximity(AActor *thing, const AActor *viewer,
 			bool ceilingOccludes = false;
 			if (fenceCeil <= (spriteTop - LEDGE_THRESHOLD))
 			{
-				if (fenceCeil < (viewerTop - Ztolerance2sided))
+				if (fenceCeil < (viewerTop - 8.0f))
 				{
 					ceilingOccludes = true;
 				}
@@ -4501,24 +4546,90 @@ static float CheckFacingMidTextureProximity(AActor *thing, const AActor *viewer,
 struct MidTextureProximityCacheEntry
 {
 	int   lastMapTimeUpdateTick = -1;
-	float cachedProximityFactor = 1.0f; // Changed to float
+	float cachedProximityFactor = 1.0f;
+	float lastViewerEyeZ = 0.0f;
 };
 static TMap<AActor *, MidTextureProximityCacheEntry> MidTextureProximityCache;
 
-bool CheckFacingMidTextureProximityWrapper(AActor *thing, AActor *viewer, TVector3<double> &thingpos)
+//bool CheckFacingMidTextureProximityWrapper(AActor *thing, AActor *viewer, TVector3<double> &thingpos)
+//{
+//	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
+//	// This function is called with "!" in front, that's why "return true" for early exit
+//	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
+//	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_MIDTEXTURE)) return true;
+//
+//	if (enableAnamorphCache)
+//	{
+//		const int         currentMapTimeTick = level.maptime;
+//		MidTextureProximityCacheEntry &entry = MidTextureProximityCache[thing];
+//
+//		// Return cached result if valid (updated within last 3 ticks)
+//		if (entry.lastMapTimeUpdateTick != -1 && (currentMapTimeTick - entry.lastMapTimeUpdateTick) < 8)
+//		{
+//			// DIRECTION: If proximity is high (>= 0.75f), it means NO occlusion, so return TRUE (Visible)
+//			// If proximity drops (e.g. 0.25f), return FALSE to let Pass 2 trigger active culling
+//			return entry.cachedProximityFactor >= 0.75f;
+//		}
+//
+//		// Compute fresh proximity factor and cache it
+//		entry.cachedProximityFactor = CheckFacingMidTextureProximity(thing, viewer, thingpos);
+//		entry.lastMapTimeUpdateTick = currentMapTimeTick;
+//
+//		// DIRECTION: Strictly matching the verified visibility logic above
+//		return entry.cachedProximityFactor >= 0.75f;
+//	}
+//	else
+//	{
+//		// Original uncached behavior
+//		float proximity = CheckFacingMidTextureProximity(thing, viewer, thingpos);
+//		return proximity >= 0.75f;
+//	}
+//}
+
+bool CheckFacingMidTextureProximityWrapper(AActor* thing, AActor* viewer, TVector3<double>& thingpos)
 {
 	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 	// This function is called with "!" in front, that's why "return true" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	if (CheckFrustumCulling(thing)) return false; // NEW COMMENT: Accelerated clip discard
+	if (IsAnamorphicDistanceCulled(thing, 2048.0f)) return false; // NEW COMMENT: Far plane clamp
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_MIDTEXTURE)) return true;
 
 	if (enableAnamorphCache)
 	{
 		const int         currentMapTimeTick = level.maptime;
-		MidTextureProximityCacheEntry &entry = MidTextureProximityCache[thing];
+		MidTextureProximityCacheEntry& entry = MidTextureProximityCache[thing];
 
-		// Return cached result if valid (updated within last 3 ticks)
-		if (entry.lastMapTimeUpdateTick != -1 && (currentMapTimeTick - entry.lastMapTimeUpdateTick) < 8)
+		// NEW COMMENT: Calculate exact raw camera eye height right now
+		float eyeHeight = 41.0f;
+		if (viewer->player && viewer->player->mo)
+		{
+			eyeHeight = (viewer->player->mo->FloatVar(NAME_ViewHeight) + viewer->player->crouchviewdelta);
+		}
+		float currentViewerEyeZ = (float)viewer->Z() + eyeHeight;
+
+		// ============================================================================================
+		// CPU-SAVING VERTICAL HYSTERESIS GATE (THE 48-UNIT THRESHOLD OVERRIDE)
+		// Evaluates sudden vertical camera spikes. To protect the CPU from aggressive recalculations 
+		// on minor ground bumps, stairs, or smooth crouching (e.g., 47 units), we retain the stable cache.
+		// We FORCE drop the lifespan to 0 ONLY during extreme, atypical vertical warps EXCEEDING 48 units.
+		// ============================================================================================
+		int dynamicTickLifespan = 8; // Default ultra-performance optimization window
+
+		if (entry.lastMapTimeUpdateTick != -1)
+		{
+			float verticalHeightDelta = fabsf(currentViewerEyeZ - entry.lastViewerEyeZ);
+
+			// Only accelerate the cache if a massive vertical shift occurs (> 48 units)
+			// Small bumps, standard stairs, and shallow crouches are completely ignored to save CPU cycles!
+			if (verticalHeightDelta > 48.0f)
+			{
+				dynamicTickLifespan = 0; // Force immediate cache invalidation on extreme vertical warps
+			}
+		}
+
+		// Return cached result if valid (updated within calculated dynamic lifespan)
+		if (entry.lastMapTimeUpdateTick != -1 && (currentMapTimeTick - entry.lastMapTimeUpdateTick) < dynamicTickLifespan)
 		{
 			// DIRECTION: If proximity is high (>= 0.75f), it means NO occlusion, so return TRUE (Visible)
 			// If proximity drops (e.g. 0.25f), return FALSE to let Pass 2 trigger active culling
@@ -4528,6 +4639,7 @@ bool CheckFacingMidTextureProximityWrapper(AActor *thing, AActor *viewer, TVecto
 		// Compute fresh proximity factor and cache it
 		entry.cachedProximityFactor = CheckFacingMidTextureProximity(thing, viewer, thingpos);
 		entry.lastMapTimeUpdateTick = currentMapTimeTick;
+		entry.lastViewerEyeZ = currentViewerEyeZ; // NEW COMMENT: Seal current 3D vertical height context into the cache line
 
 		// DIRECTION: Strictly matching the verified visibility logic above
 		return entry.cachedProximityFactor >= 0.75f;
@@ -5025,7 +5137,7 @@ bool IsSpriteVisibleBehind3DFloorSidesCachedWrapper(AActor* viewer, AActor* thin
 {
 	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 	// This function is called with "!" in front, that's why "return true" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 	if (IsAnamorphicDistanceCulled(thing, 2048.0f)) return false;
 	//if (!isGeometryTypePresentInRadiusCachedWrapper(thing, RADAR_HAS_3DFLOOR)) return true;
 
@@ -5202,7 +5314,7 @@ bool IsDynlightVisibleBehind2sidedLinedefSectObstrWrapperCached(AActor *viewer, 
 														float dynlightRadius, bool isDynlight)
 {
 	if (!viewer || !thing || viewer == thing) return false;
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 
 	// // Near-field visibility absolute shield protect pass
 	if (IsDynlightDistanceCulled(thing, 2048.0f))
@@ -5340,7 +5452,7 @@ bool IsDynlightVisibleBehind3DFloorSidesCachedWrapper(AActor* viewer, AActor* th
 {
 	// !!! GEOMETRY RADAR IS NOT NEEDED HERE AS IT'S ONLY FOR LINE CROSSING CHECKS !!!
 	// This function is called with "!" in front, that's why "return true" for early exit
-	if (!IsSpriteInActivePortalGroup(thing, viewer)) return true;
+	//if (!IsSpriteNOTinActivePortalGroup(thing, viewer)) return true;
 	if (IsDynlightDistanceCulled(thing, 512.0f))
 	{
 		return true; // Not culling because NEAR field is ALWAYS visible!

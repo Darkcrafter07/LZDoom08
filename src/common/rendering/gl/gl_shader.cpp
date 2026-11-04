@@ -268,6 +268,8 @@ bool FShader::Load(const char * name, const char * vert_prog_lump, const char * 
 		uniform vec4 uSplitBottomPlane;
 
 		uniform vec4 uDetailParms;
+		uniform vec4 uNpotEmulation;
+		uniform vec4 uAnamorphicData;
 		// Lighting + Fog
 		uniform vec4 uLightAttr;
 		#define uLightLevel uLightAttr.a
@@ -600,6 +602,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump, const char * 
 #ifdef NPOT_EMULATION
 	muNpotEmulation.Init(hShader, "uNpotEmulation");
 #endif
+	muAnamorphicData.Init(hShader, "uAnamorphicData");
 	muInterpolationFactor.Init(hShader, "uInterpolationFactor");
 	muAlphaThreshold.Init(hShader, "uAlphaThreshold");
 	muSpecularMaterial.Init(hShader, "uSpecularMaterial");

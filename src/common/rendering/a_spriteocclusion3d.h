@@ -96,6 +96,7 @@ void EvaluateSpritePropertiesFP(AActor *thing); // UZDoom signature
 void ExpandUndersizedSpriteDimensions(AActor *thing); // UZDoom signature
 
 bool IsAnamorphicDistanceCulled(AActor* thing, float gl_anamorphic_spriteclip_distance_cull);
+bool IsSpriteNOTinActivePortalGroup(AActor* thing, AActor* viewer);
 
 float GetActualSpriteFloorZ3DfloorsAndOther(sector_t* s, DVector3& pos, AActor* thing);
 float GetActualSpriteCeilingZ3DfloorsAndOther(sector_t* s, DVector3& pos, AActor* thing);

@@ -313,6 +313,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 		uniform vec4 uSplitBottomPlane;
 
 		uniform vec4 uDetailParms;
+		uniform vec4 uAnamorphicData;
 		// Lighting + Fog
 		uniform vec4 uLightAttr;
 		#define uLightLevel uLightAttr.a
@@ -615,6 +616,7 @@ bool FShader::Load(const char * name, const char * vert_prog_lump_, const char *
 #ifdef NPOT_EMULATION
 	shaderData->muNpotEmulation.Init(shaderData->hShader, "uNpotEmulation");
 #endif
+	shaderData->muAnamorphicData.Init(shaderData->hShader, "uAnamorphicData");
 	shaderData->muFixedColormapStart.Init(shaderData->hShader, "uFixedColormapStart");
 	shaderData->muFixedColormapRange.Init(shaderData->hShader, "uFixedColormapRange");
 

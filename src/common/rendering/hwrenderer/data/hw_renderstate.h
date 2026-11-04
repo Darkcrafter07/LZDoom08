@@ -206,7 +206,9 @@ struct StreamData
 
 	FVector4 uDetailParms;
 	FVector4 uNpotEmulation;
-	FVector4 padding1, padding2, padding3;
+	FVector4 uAnamorphicData;
+	FVector4 padding2;
+	FVector4 padding3;
 };
 
 class FRenderState
@@ -801,6 +803,12 @@ public:
 	void SetColorMask(bool on)
 	{
 		SetColorMask(on, on, on, on);
+	}
+
+	void SetAnamorphicZ(float z1, float z2 = 0.0f)
+	{
+		mStreamData.uAnamorphicData.X = z1;
+		mStreamData.uAnamorphicData.Y = z2;
 	}
 
 };

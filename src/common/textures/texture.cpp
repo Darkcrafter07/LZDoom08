@@ -122,21 +122,50 @@ int FTexture::CheckRealHeight()
 //
 //===========================================================================
 
-bool FTexture::FindHoles(const unsigned char* buffer, int w, int h)
+bool FTexture::FindHoles(const unsigned char * buffer, int w, int h)
 {
-	const unsigned char* li;
+	const unsigned char * li;
 	int y, x;
 	int startdraw, lendraw;
 	int gaps[5][2];
 	int gapc = 0;
 
-
 	// already done!
 	if (areacount) return false;
+
+	// flats don't have transparent parts - [Darkcrafter07]: really? 3D floors?
+	//if (UseType == ETextureType::Flat) return false;
+
 	areacount = -1;	//whatever happens next, it shouldn't be done twice!
 
-							// large textures and non-images are excluded for performance reasons
-	if (h>512 || !GetImage()) return false;
+
+	// large textures and non-images are excluded for performance reasons
+	if (h > 512 || !GetImage()) return false;
+
+	// --- [Alpha-Channel Transparency Pre-Flight Check] ---
+	// CRITICAL FIX: Before executing the original broken loop mergers, run 
+	// a fast raw hardware scan over the actual alpha channel byte-array.
+	// If the image contains zero transparent pixels (alpha == 0), it is 100% solid.
+	// This bypasses the bugged end-of-loop startdraw == 0 crash gates.
+	bool hasAnyTransparentPixels = false;
+	const unsigned char *alphaPtr = buffer + 3; // Jump straight to the first alpha byte
+	int totalPixels = w * h;
+
+	for (int p = 0; p < totalPixels; p++, alphaPtr += 4)
+	{
+		if (*alphaPtr == 0) // Found a true alpha hole/cutout pixel!
+		{
+			hasAnyTransparentPixels = true;
+			break;
+		}
+	}
+
+	if (!hasAnyTransparentPixels)
+	{
+		areas = nullptr;
+		areacount = 0;
+		return false; // Solid texture confirmed, do not create split zones!
+	}
 
 	startdraw = -1;
 	lendraw = 0;
@@ -162,7 +191,14 @@ bool FTexture::FindHoles(const unsigned char* buffer, int w, int h)
 					startdraw = gaps[gapc][0];
 					lendraw = y - startdraw;
 				}
-				if (gapc == 4) return false;	// too many splits - this isn't worth it
+				if (gapc == 4) 
+				{
+					// [Darkcrafter07]: Too many splits, but we must explicitly enforce Masked flag
+					// because the pre-flight check confirmed that alpha gaps actually exist!
+					Masked = true;
+					areacount = 0;
+					return false;
+				}
 			}
 			lendraw++;
 		}
@@ -183,11 +219,18 @@ bool FTexture::FindHoles(const unsigned char* buffer, int w, int h)
 		gaps[gapc][1] = lendraw;
 		gapc++;
 	}
-	if (startdraw == 0 && lendraw == h) return false;	// nothing saved so don't create a split list
+
+	// --- Validation Gate ---
+	// Since the pre-flight scanner already proved the existence of alpha cuts,
+	// bypass bugged logic line "if (startdraw == 0 && lendraw == h)".
+	
+	// [Darkcrafter07]: Ensure the engine treats this texture as truly masked via UZDoom API variable
+	Masked = (gapc > 0) || hasAnyTransparentPixels;
 
 	if (gapc > 0)
 	{
-		FloatRect* rcs = (FloatRect*)ImageArena.Alloc(gapc * sizeof(FloatRect));	// allocate this on the image arena
+		// [Darkcrafter07]: In v4 architecture, memory allocation must use the centralized ImageArena allocator
+		FloatRect * rcs = (FloatRect*)ImageArena.Alloc(gapc * sizeof(sizeof(FloatRect)));
 
 		for (x = 0; x < gapc; x++)
 		{
@@ -198,8 +241,10 @@ bool FTexture::FindHoles(const unsigned char* buffer, int w, int h)
 		}
 		areas = rcs;
 	}
-	else areas = nullptr;
-	areacount = gapc;
+	else
+	{
+		areas = nullptr;
+	}
 
 	return true;
 }

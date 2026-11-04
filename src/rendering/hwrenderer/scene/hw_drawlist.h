@@ -111,6 +111,8 @@ public:
 	void Sort(HWDrawInfo *di);
 
 	void DoDraw(HWDrawInfo *di, FRenderState &state, bool translucent, int i);
+	void DoDrawGL1x(HWDrawInfo* di, FRenderState& state, bool translucent, int i);
+	void DoDrawGL3x(HWDrawInfo* di, FRenderState& state, bool translucent, int i);
 	void Draw(HWDrawInfo *di, FRenderState &state, bool translucent);
 	void DrawWalls(HWDrawInfo *di, FRenderState &state, bool translucent);
 	void DrawFlats(HWDrawInfo *di, FRenderState &state, bool translucent);

@@ -268,6 +268,7 @@ class FShader
 #ifdef NPOT_EMULATION
 	FBufferedUniform2f muNpotEmulation;
 #endif
+	FUniform4f muAnamorphicData;
 
 	int lights_index;
 	int modelmatrix_index;

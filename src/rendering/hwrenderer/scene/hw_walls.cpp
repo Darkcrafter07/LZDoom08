@@ -3119,18 +3119,68 @@ void HWWall::Process(HWWallDispatcher *di, seg_t *seg, sector_t * frontsector, s
 
 		if (isportal)
 		{
-			lineportal = seg->linedef->getPortal()->mGroup;
-			ztop[0] = bch1;
-			ztop[1] = bch2;
-			zbottom[0] = bfh1;
-			zbottom[1] = bfh2;
-			PutPortal(di, PORTALTYPE_LINETOLINE, -1);
+			// --- Line portal with window cut - START ---
+			// this->lineportal = reinterpret_cast<FLinePortalSpan *>(seg->linedef->getPortal()->mGroup);
+			lineportal = (FLinePortalSpan*)seg->linedef->getPortal()->mGroup; // crashes without this
+			float portalFloor, portalCeiling, offsetVisDist = 0.0f;
 
-			if (texture && seg->backsector != nullptr)
+			FPortalCutHeights cut;
+			GetLinePortalCutHeights(seg->linedef, seg->frontsector, &cut);
+
+			portalFloor = cut.Floor;
+			portalCeiling = cut.Ceiling;
+			offsetVisDist = cut.OffsetDistVisual;
+
+			// Pre-fill stencil matrices with sloped sector values
+			ztop[0] = bch1; ztop[1] = bch2;
+			zbottom[0] = bfh1; zbottom[1] = bfh2;
+
+			// Conduct priority branch locks and apply custom dynamic cuts
+			if (!cut.HasDynamicHeights)
 			{
-				DoMidTexture(di, seg, drawfogboundary, frontsector, backsector, realfront, realback,
-					fch1, fch2, ffh1, ffh2, bch1, bch2, bfh1, bfh2, zalign, skew);
+				// If no dynamic heights are bound, keep the sloped boundaries intact
 			}
+			// else if (portalFloor >= portalCeiling)
+			else if (portalFloor >= portalCeiling || fabsf(portalCeiling - portalFloor) <= 0.1f)
+			{
+				// Anti-recursive cull: do NOT render the line portal if gap is closed or collapsed
+				isportal = false;
+				lineportal = nullptr;
+			}
+			else
+			{
+				// Dynamic heights are active and open
+				ztop[0] = ztop[1] = portalCeiling;
+				zbottom[0] = zbottom[1] = portalFloor;
+			}
+
+			// Execute the compensate vector push ONLY if the portal pass remains active and clear
+			if (isportal && offsetVisDist > 0.0f)
+			{
+				// Get 2D direction vectors of the wall seg line
+				float dx = (float)(seg->linedef->v2->fX() - seg->linedef->v1->fX());
+				float dy = (float)(seg->linedef->v2->fY() - seg->linedef->v1->fY());
+				float length = sqrt(dx * dx + dy * dy) + 0.0000001f;
+
+				if (length > 0.0f)
+				{
+					// Calculate perpendicular normal vectors (Side 0 faces outward)
+					float nx = -dy / length; float ny = dx / length;
+
+					// Compare with the second side (Side 1) of the array correctly
+					if (seg->linedef->sidedef[1] == seg->sidedef) { nx = -nx; ny = -ny; }
+
+					// Shift the internal glseg position registers BEFORE sending to the pipeline
+					glseg.x1 += nx * offsetVisDist; glseg.y1 += ny * offsetVisDist;
+					glseg.x2 += nx * offsetVisDist; glseg.y2 += ny * offsetVisDist;
+				}
+			}
+
+			if (isportal)
+			{
+				PutPortal(di, PORTALTYPE_LINETOLINE, -1);
+			}
+			// --- Line portal with window cut - FINISH ---
 		}
 		else
 		{

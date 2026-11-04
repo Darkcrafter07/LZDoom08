@@ -257,6 +257,7 @@ bool FGLRenderState::ApplyShader()
 #ifdef NPOT_EMULATION
 	activeShader->cur->muNpotEmulation.Set(&mStreamData.uNpotEmulation.X);
 #endif
+	activeShader->cur->muAnamorphicData.Set(&mStreamData.uAnamorphicData.X);
 
 	if (flavour.useColorMap)
 	{

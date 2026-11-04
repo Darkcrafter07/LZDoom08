@@ -281,7 +281,7 @@ float R_DoomLightingEquation(float light)
 #if (DEF_FOG_RADIAL == 1)
 	z = distance(pixelpos.xyz, uCameraPos.xyz);
 #else
-	z = pixelpos.w;
+	z = pixelpos.w  + (uAnamorphicData.x * 3.4);
 #endif
 
 #if (DEF_BUILD_LIGHTING == 1) // gl_lightmode 5: Build software lighting emulation.

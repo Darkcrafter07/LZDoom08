@@ -397,6 +397,7 @@ public:
 	float vt,vb;
 	float x1,y1,z1;
 	float x2,y2,z2;
+	float nonanam_z1, nonanam_z2; // Anamorphic Forced-Perspective sprite clip light correction
 	float offx, offy;
 	float trans;
 	int dynlightindex;

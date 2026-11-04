@@ -216,7 +216,9 @@ static const char *shaderBindings = R"(
 
 		vec4 uDetailParms;
 		vec4 uNpotEmulation;
-		vec4 padding1, padding2, padding3;
+		vec4 uAnamorphicData;
+		vec4 padding2;
+		vec4 padding3;
 	};
 
 	layout(set = 1, binding = 2, std140) uniform readonly StreamUBO {
@@ -321,6 +323,7 @@ static const char *shaderBindings = R"(
 	#define uSplitBottomPlane data[uDataIndex].uSplitBottomPlane
 	#define uDetailParms data[uDataIndex].uDetailParms
 	#define uNpotEmulation data[uDataIndex].uNpotEmulation
+	#define uAnamorphicData data[uDataIndex].uAnamorphicData
 
 	#define SUPPORTS_SHADOWMAPS
 	#define VULKAN_COORDINATE_SYSTEM

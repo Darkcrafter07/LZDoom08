@@ -352,6 +352,7 @@ public: class ShaderVariantData
 #ifdef NPOT_EMULATION
 		FBufferedUniform2f muNpotEmulation;
 #endif
+		FUniform4f muAnamorphicData;
 		FUniform4f muFixedColormapStart;
 		FUniform4f muFixedColormapRange;
 

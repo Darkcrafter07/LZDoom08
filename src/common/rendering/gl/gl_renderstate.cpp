@@ -173,6 +173,7 @@ bool FGLRenderState::ApplyShader()
 #ifdef NPOT_EMULATION
 	activeShader->muNpotEmulation.Set(&mStreamData.uNpotEmulation.X);
 #endif
+	activeShader->muAnamorphicData.Set(&mStreamData.uAnamorphicData.X);
 
 	if (mGlowEnabled || activeShader->currentglowstate)
 	{

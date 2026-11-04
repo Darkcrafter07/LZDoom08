@@ -141,14 +141,15 @@ protected:
 	int start;
 	FTagManager &tagManager;
 
-	FLineIdIterator(FTagManager &tm, int id) : tagManager(tm)
+public:
+	int Next();
+
+	FLineIdIterator(FTagManager& tm, int id) : tagManager(tm)
 	{
 		searchtag = id;
 		start = tagManager.IDHashFirst[((unsigned int)id) % FTagManager::TAG_HASH_SIZE];
 	}
 
-public:
-	int Next();
 };
 
 
